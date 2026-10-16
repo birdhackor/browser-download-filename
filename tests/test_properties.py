@@ -10,6 +10,7 @@ from hypothesis import strategies as st
 from browser_download_filename import (
     ContentDisposition,
     parse_content_disposition,
+    sanitize_filename,
     suggested_filename,
 )
 from browser_download_filename._filename import _ILLEGAL_ANYWHERE, _ILLEGAL_AT_ENDS
@@ -23,6 +24,7 @@ PIECES = st.sampled_from(
 )  # fmt: skip
 HEADERS = st.one_of(st.binary(max_size=200), st.lists(PIECES, max_size=30).map(b"".join))
 TEXT = st.text(max_size=80)
+PLATFORMS = st.sampled_from(["posix", "windows"])
 
 
 @settings(max_examples=500)
@@ -48,18 +50,36 @@ def _assert_safe(name: str) -> None:
 
 
 @settings(max_examples=400)
-@given(HEADERS, TEXT, st.sampled_from(["posix", "windows"]))
+@given(HEADERS, TEXT, PLATFORMS)
 def test_suggested_filename_is_always_a_safe_name(header: bytes, path: str, platform: str) -> None:
     name = suggested_filename(
-        "https://example.com/" + path,
-        header,
+        url="https://example.com/" + path,
+        content_disposition=header,
         platform=platform,  # type: ignore[arg-type]
     )
     _assert_safe(name)
 
 
 @settings(max_examples=400)
-@given(TEXT, st.sampled_from(["posix", "windows"]))
+@given(TEXT, st.one_of(st.just("download"), st.text(min_size=1, max_size=20)), PLATFORMS)
+def test_sanitize_filename_names_a_download_attribute(
+    name: str, default_name: str, platform: str
+) -> None:
+    sanitized = sanitize_filename(
+        name,
+        default_name=default_name,
+        platform=platform,  # type: ignore[arg-type]
+    )
+    assert sanitized == suggested_filename(
+        download_attribute=name,
+        default_name=default_name,
+        platform=platform,  # type: ignore[arg-type]
+    )
+    _assert_safe(sanitized)
+
+
+@settings(max_examples=400)
+@given(TEXT, PLATFORMS)
 # On Windows, ReplaceIllegalCharactersInPath decides from the name it is given
 # whether that could be an 8.3 short name, and replaces every '~' only if so.
 # In "0~|" the '|' rules a short name out, so the '~' stays while the '|'
@@ -67,8 +87,8 @@ def test_suggested_filename_is_always_a_safe_name(header: bytes, path: str, plat
 # '~'. A '~' in a name that can never be a short name stays both times.
 @example("0~|", "windows")
 def test_sanitizing_twice_changes_nothing_but_windows_tildes(name: str, platform: str) -> None:
-    once = suggested_filename(None, suggested_name=name, platform=platform)  # type: ignore[arg-type]
-    twice = suggested_filename(None, suggested_name=once, platform=platform)  # type: ignore[arg-type]
+    once = suggested_filename(download_attribute=name, platform=platform)  # type: ignore[arg-type]
+    twice = suggested_filename(download_attribute=once, platform=platform)  # type: ignore[arg-type]
     if not once.strip("-_"):
         # Chromium replaces a name made only of '-' and '_' with the default,
         # so "_" (what '"' becomes) turns into "download" the second time.
@@ -108,5 +128,5 @@ def test_large_adversarial_inputs_are_fast() -> None:
     ]
     for header in inputs:
         started = time.perf_counter()
-        suggested_filename("https://example.com/x", header)
+        suggested_filename(url="https://example.com/x", content_disposition=header)
         assert time.perf_counter() - started < 2.0

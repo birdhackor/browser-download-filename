@@ -40,12 +40,12 @@ Chrome does beyond them, and where Firefox and Safari name files differently.
 `suggested_filename` takes the first of these that is not empty:
 
 1. the file name from Content-Disposition, whatever the disposition type;
-2. `suggested_name`, the `<a download>` value;
+2. `download_attribute`, the `<a download>` value;
 3. the last segment of the URL's path: after the last `/` or `\`, up to a `;`,
    with %-escapes decoded. Its bytes must be UTF-8, or decode with
    `fallback_charset`. `data:` and `about:` URLs, and URLs that are not valid,
    give no name.
-4. the URL's host, but only if `default_name` is empty.
+4. the URL's host, but only if `default_name` is `None`.
 
 ## Sanitizing it
 
@@ -54,12 +54,13 @@ Then, in this order:
 1. Leading and trailing dots are removed (on Windows, trailing dots and spaces
    first become `_`), and `/` and `\` become `_`.
 2. A name that is now empty, or made only of `-` and `_`, is replaced with
-   `default_name` (`download`).
+   `default_name` (`download` unless you pass another), or with `download` if
+   `default_name` is `None`.
 3. Characters that are not allowed anywhere become `_`: `"`, `*`, `/`, `:`,
    `<`, `>`, `?`, `\` and `|`, control characters, Unicode format characters
    such as the right-to-left override U+202E, and noncharacters. Whitespace,
    `.` and `~` at the start or end also become `_`.
-4. The extension rules for `mime_type` and the Windows rules apply, as
+4. The extension rules for `content_type` and the Windows rules apply, as
    described in [Usage](usage.md#add-an-extension-from-the-content-type).
 
 So a name made of `report`, U+202E and `txt.exe`, which displays as

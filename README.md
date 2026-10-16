@@ -31,7 +31,8 @@ inside quotes. This package gives the name Chrome gives.
 - **Safe names** — the result is a single file name, never empty, with path
   separators, control characters and other characters that file systems
   reject replaced. `platform="windows"` adds Windows' rules for reserved
-  names, trailing dots and spaces, and shortcut extensions.
+  names, trailing dots and spaces, and shortcut extensions; by default they
+  apply when the code runs on Windows.
 - **No dependencies** — pure Python, one wheel for every platform: CPython
   3.11+ and PyPy.
 
@@ -46,11 +47,11 @@ pip install browser-download-filename      # or: uv add browser-download-filenam
 ```pycon
 >>> from browser_download_filename import parse_content_disposition, suggested_filename
 >>> header = b"attachment; filename=report.pdf; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf"
->>> suggested_filename("https://example.com/download?id=42", header)
+>>> suggested_filename(url="https://example.com/download?id=42", content_disposition=header)
 '報告.pdf'
->>> suggested_filename(None, header)
+>>> suggested_filename(content_disposition=header)
 '報告.pdf'
->>> suggested_filename("https://example.com/files/r%C3%A9sum%C3%A9.pdf")
+>>> suggested_filename(url="https://example.com/files/r%C3%A9sum%C3%A9.pdf")
 'résumé.pdf'
 >>> parse_content_disposition('attachment; filename="a;b;c.txt";')
 ContentDisposition(type='attachment', filename='a;b;c.txt')
@@ -60,7 +61,7 @@ ContentDisposition(type='attachment', filename='a;b;c.txt')
 (after redirects) and its Content-Disposition header, and returns the name
 Chrome reports to DevTools and Playwright as the download's suggested file
 name. The URL is optional and only matters when the header gives no name:
-Chrome then takes the last segment of its path. Pass `None` if you have no
+Chrome then takes the last segment of its path. Leave it out if you have no
 URL. With requests:
 
 ```python
@@ -70,9 +71,9 @@ from browser_download_filename import suggested_filename
 response = requests.get(url)
 header = response.headers.get("Content-Disposition")
 name = suggested_filename(
-    response.url,
-    header.encode("latin-1") if header else None,  # the bytes on the wire
-    mime_type=response.headers.get("Content-Type"),
+    url=response.url,
+    content_disposition=header.encode("latin-1") if header else None,  # the bytes on the wire
+    content_type=response.headers.get("Content-Type"),
 )
 ```
 

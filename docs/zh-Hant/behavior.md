@@ -20,18 +20,18 @@
 `suggested_filename` 依序取下列第一個非空的結果：
 
 1. Content-Disposition 裡的檔名，不論處置類型是什麼；
-2. `suggested_name`，也就是 `<a download>` 的值；
+2. `download_attribute`，也就是 `<a download>` 的值；
 3. 網址路徑的最後一段：最後一個 `/` 或 `\` 之後、`;` 之前的部分，並做百分比解碼。解出的位元組必須是 UTF-8，或能用 `fallback_charset` 解碼。`data:` 和 `about:` 網址，以及不合法的網址，都不提供檔名。
-4. 網址的主機名稱，但只在 `default_name` 是空字串時。
+4. 網址的主機名稱，但只在 `default_name` 是 `None` 時。
 
 ## 清洗檔名 {#sanitizing-it}
 
 接著依序：
 
 1. 去掉開頭和結尾的 `.`（在 Windows 上，結尾的 `.` 和空白會先換成 `_`），並把 `/` 和 `\` 換成 `_`。
-2. 如果這時檔名是空的，或只由 `-` 和 `_` 組成，就換成 `default_name`（`download`）。
+2. 如果這時檔名是空的，或只由 `-` 和 `_` 組成，就換成 `default_name`（沒有另外指定時是 `download`）；`default_name` 是 `None` 時換成 `download`。
 3. 任何位置都不允許的字元換成 `_`：`"`、`*`、`/`、`:`、`<`、`>`、`?`、`\`、`|`、控制字元、Unicode 格式字元（例如由右至左覆寫字元 U+202E）以及非字元（noncharacter）。出現在開頭或結尾的空白、`.` 和 `~` 也換成 `_`。
-4. 套用 `mime_type` 的副檔名規則和 Windows 規則，說明見[使用方式](usage.md#add-an-extension-from-the-content-type)。
+4. 套用 `content_type` 的副檔名規則和 Windows 規則，說明見[使用方式](usage.md#add-an-extension-from-the-content-type)。
 
 所以由 `report`、U+202E 和 `txt.exe` 組成、看起來像 `reportexe.txt` 的檔名，會變成 `report_txt.exe`。
 

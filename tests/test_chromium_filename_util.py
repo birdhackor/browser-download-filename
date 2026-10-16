@@ -43,11 +43,12 @@ def _expected(case: Case, platform: str) -> str:
 def _run(case: Case, platform: str, referrer_charset: str | None = None) -> str:
     charset = case.referrer_charset if referrer_charset is None else referrer_charset
     return suggested_filename(
-        case.url,
-        case.content_disposition,
-        suggested_name=case.suggested_name,
-        mime_type=case.mime_type,
-        default_name=case.default_name,
+        url=case.url,
+        content_disposition=case.content_disposition,
+        content_type=case.mime_type,
+        download_attribute=case.suggested_name,
+        # Chromium's empty default name: the URL's host, then "download".
+        default_name=case.default_name or None,
         fallback_charset=charset or None,
         platform=platform,  # type: ignore[arg-type]
     )

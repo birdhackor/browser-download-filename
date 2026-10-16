@@ -2,16 +2,17 @@
 
 :func:`parse_content_disposition` reads a Content-Disposition header the way
 Chromium's HttpContentDisposition does, and :func:`suggested_filename` runs
-Chromium's whole download naming: Content-Disposition, then the URL, then a
-default, followed by the same sanitization. Both accept the header as raw
-bytes or as the str an HTTP library produced, and neither raises on a
-malformed header.
+Chromium's whole download naming: Content-Disposition, then an ``<a download>``
+value, then the URL, then a default, followed by the same sanitization. Both
+accept the header as raw bytes or as the str an HTTP library produced, and
+neither raises on a malformed header. :func:`sanitize_filename` applies that
+sanitization to a name from anywhere else.
 """
 
 from importlib.metadata import version as _version
 
 from ._content_disposition import ContentDisposition, parse_content_disposition
-from ._filename import suggested_filename
+from ._filename import sanitize_filename, suggested_filename
 
 __version__ = _version("browser-download-filename")
 
@@ -19,5 +20,6 @@ __all__ = [
     "ContentDisposition",
     "__version__",
     "parse_content_disposition",
+    "sanitize_filename",
     "suggested_filename",
 ]

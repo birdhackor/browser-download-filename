@@ -6,24 +6,29 @@
 
 ```pycon
 >>> from browser_download_filename import parse_content_disposition, suggested_filename
->>> suggested_filename(None, 'attachment; filename="Q3 report.pdf"')
+>>> suggested_filename(content_disposition='attachment; filename="Q3 report.pdf"')
 'Q3 report.pdf'
->>> suggested_filename("https://example.com/files/report.pdf", 'attachment; filename="Q3 report.pdf"')
+>>> suggested_filename(
+...     url="https://example.com/files/report.pdf",
+...     content_disposition='attachment; filename="Q3 report.pdf"',
+... )
 'Q3 report.pdf'
->>> suggested_filename("https://example.com/files/report.pdf?id=1", "attachment")
+>>> suggested_filename(
+...     url="https://example.com/files/report.pdf?id=1", content_disposition="attachment"
+... )
 'report.pdf'
->>> suggested_filename(None, "attachment")
+>>> suggested_filename(content_disposition="attachment")
 'download'
 ```
 
 Chrome 依下列順序，採用第一個提供檔名的來源：
 
-1. Content-Disposition 標頭，也就是第二個參數；回應沒有這個標頭時，省略它或傳入 `None`；
-2. `suggested_name`，也就是 `<a download>` 屬性的值（見 [download 屬性](#the-download-attribute)）；
-3. 網址，也就是第一個參數：取路徑的最後一段，解開百分比編碼，不含查詢字串（`about:` 和 `data:` 網址取不到檔名）；
+1. `content_disposition`，也就是 Content-Disposition 標頭；回應沒有這個標頭時，省略它或傳入 `None`；
+2. `download_attribute`，也就是 `<a download>` 屬性的值（見 [download 屬性](#the-download-attribute)）；
+3. `url`，也就是網址：取路徑的最後一段，解開百分比編碼，不含查詢字串（`about:` 和 `data:` 網址取不到檔名）；
 4. `default_name`，沒有另外指定時是 `download`（見 [預設檔名](#the-default-name)）。
 
-網址是回應的最終網址（跟隨重新導向之後的網址）。只有標頭沒有提供檔名時才會用到它，例如回應沒有 Content-Disposition、標頭裡既沒有 `filename` 也沒有 `filename*`，或是裡面的檔名無法解碼（見 [解碼舊式字元集](#decode-legacy-charsets)）。沒有網址時傳入 `None`，這時會跳過網址，接著用 `default_name`。檔名取自帶查詢字串的網址時，`mime_type` 也可能換掉它的副檔名（見 [依 Content-Type 補副檔名](#add-an-extension-from-the-content-type)）。
+`url` 是回應的最終網址（跟隨重新導向之後的網址）。只有標頭沒有提供檔名時才會用到它，例如回應沒有 Content-Disposition、標頭裡既沒有 `filename` 也沒有 `filename*`，或是裡面的檔名無法解碼（見 [解碼舊式字元集](#decode-legacy-charsets)）。沒有網址時省略它，這時會跳過網址，接著用 `default_name`。檔名取自帶查詢字串的網址時，`content_type` 也可能換掉它的副檔名（見 [依 Content-Type 補副檔名](#add-an-extension-from-the-content-type)）。
 
 回傳值一定是一個非空的檔名：不含 `/`、`\`、控制字元或其他檔案系統不接受的字元，開頭和結尾也不會是 `.` 或空白。把它放進你要的目錄即可：
 
@@ -33,7 +38,7 @@ from pathlib import Path
 path = Path(download_dir) / name
 ```
 
-同名檔案已經存在時，Chrome 會替新檔編號（`report (1).pdf`）。本套件不會去看檔案系統，所以檔案已存在時怎麼處理，由你決定。
+本套件只建議檔名，不會碰檔案系統。有兩件事要你自己處理：檔名可能超過檔案系統允許的長度（例如 Linux 的 ext4 每個檔名最多 255 個位元組，以 UTF-8 寫中文大約 85 個字）；同名檔案也可能已經存在（Chrome 會把新檔編號成 `report (1).pdf`）。
 
 ## 從 HTTP 函式庫傳入標頭 {#pass-the-header-from-your-http-library}
 
@@ -48,8 +53,8 @@ from browser_download_filename import suggested_filename
 response = requests.get(url)
 header = response.headers.get("Content-Disposition")
 name = suggested_filename(
-    response.url,
-    header.encode("latin-1") if header is not None else None,
+    url=response.url,
+    content_disposition=header.encode("latin-1") if header is not None else None,
 )
 ```
 
@@ -65,8 +70,10 @@ with httpx.stream("GET", url, follow_redirects=True) as response:
     response.raise_for_status()
     header = response.headers.get("Content-Disposition")
     name = suggested_filename(
-        str(response.url),
-        header.encode(response.headers.encoding) if header is not None else None,
+        url=str(response.url),
+        content_disposition=(
+            header.encode(response.headers.encoding) if header is not None else None
+        ),
     )
     with open(Path(download_dir) / name, "wb") as file:
         for chunk in response.iter_bytes():
@@ -78,8 +85,8 @@ aiohttp 用 UTF-8 解碼標頭，解不了的位元組以 surrogate escape 保�
 ```python
 async with session.get(url) as response:
     name = suggested_filename(
-        str(response.url),
-        response.headers.get("Content-Disposition"),
+        url=str(response.url),
+        content_disposition=response.headers.get("Content-Disposition"),
     )
 ```
 
@@ -91,17 +98,19 @@ requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.re
 
 ## 依 Content-Type 補副檔名 {#add-an-extension-from-the-content-type}
 
-把回應的 Content-Type 傳給 `mime_type`，就會套用 Chrome 的副檔名規則：
+把回應的 Content-Type（字串或位元組皆可）傳給 `content_type`，就會套用 Chrome 的副檔名規則：
 
 ```pycon
->>> suggested_filename("https://example.com/report", mime_type="application/pdf")
+>>> suggested_filename(url="https://example.com/report", content_type="application/pdf")
 'report.pdf'
->>> suggested_filename("https://example.com/get.php?id=1", mime_type="application/pdf")
+>>> suggested_filename(url="https://example.com/get.php?id=1", content_type="application/pdf")
 'get.pdf'
->>> suggested_filename("https://example.com/get.php", mime_type="application/pdf")
+>>> suggested_filename(url="https://example.com/get.php", content_type="application/pdf")
 'get.php'
 >>> suggested_filename(
-...     "https://example.com/x", 'attachment; filename="report"', mime_type="application/pdf"
+...     url="https://example.com/x",
+...     content_disposition='attachment; filename="report"',
+...     content_type="application/pdf",
 ... )
 'report'
 ```
@@ -119,11 +128,13 @@ requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.re
 
 ```pycon
 >>> header = b'attachment; filename="caf\xe9.txt"'
->>> suggested_filename("https://example.com/get", header)
+>>> suggested_filename(url="https://example.com/get", content_disposition=header)
 'get'
->>> suggested_filename("https://example.com/get", header, fallback_charset="windows-1252")
+>>> suggested_filename(
+...     url="https://example.com/get", content_disposition=header, fallback_charset="windows-1252"
+... )
 'café.txt'
->>> suggested_filename("https://example.com/%A4%A4%A4%E5.txt", fallback_charset="big5")
+>>> suggested_filename(url="https://example.com/%A4%A4%A4%E5.txt", fallback_charset="big5")
 '中文.txt'
 ```
 
@@ -131,18 +142,16 @@ requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.re
 
 ## Windows {#windows}
 
-`platform` 決定採用 Chrome 在 Linux、macOS 等 POSIX 系統上的規則（`"posix"`，預設值），或在 Windows 上的規則（`"windows"`）。檔案要存在 Windows 上時，請用 `"windows"`：
+`platform` 決定採用 Chrome 在 Linux、macOS 等 POSIX 系統上的規則（`"posix"`），或在 Windows 上的規則（`"windows"`）。預設跟著執行中的作業系統：在 Windows 上用 Windows 的規則，在其他系統上用 POSIX 的規則。要讓同樣的輸入不論在哪裡執行都得到同樣的檔名，就明確傳入 `platform="posix"` 或 `platform="windows"`，例如檔案會存到另一台機器上時：
 
 ```pycon
->>> suggested_filename("https://example.com/x", 'attachment; filename="con.txt"', platform="windows")
+>>> suggested_filename(content_disposition='attachment; filename="con.txt"', platform="posix")
+'con.txt'
+>>> suggested_filename(content_disposition='attachment; filename="con.txt"', platform="windows")
 '_con.txt'
->>> suggested_filename(
-...     "https://example.com/x", 'attachment; filename="report.pdf..."', platform="windows"
-... )
+>>> suggested_filename(content_disposition='attachment; filename="report.pdf..."', platform="windows")
 'report.pdf___'
->>> suggested_filename(
-...     "https://example.com/x", 'attachment; filename="invoice.pdf.lnk"', platform="windows"
-... )
+>>> suggested_filename(content_disposition='attachment; filename="invoice.pdf.lnk"', platform="windows")
 'invoice.pdf.download'
 ```
 
@@ -155,15 +164,15 @@ requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.re
 
 ## download 屬性 {#the-download-attribute}
 
-`<a download="...">` 屬性的值就是 `suggested_name`。Content-Disposition 裡的檔名優先於它，網址則排在它後面：
+`<a download="...">` 屬性的值就是 `download_attribute`。Content-Disposition 裡的檔名優先於它，網址則排在它後面：
 
 ```pycon
->>> suggested_filename("https://example.com/files/1234", suggested_name="notes.txt")
+>>> suggested_filename(url="https://example.com/files/1234", download_attribute="notes.txt")
 'notes.txt'
 >>> suggested_filename(
-...     "https://example.com/files/1234",
-...     'attachment; filename="server.txt"',
-...     suggested_name="notes.txt",
+...     url="https://example.com/files/1234",
+...     content_disposition='attachment; filename="server.txt"',
+...     download_attribute="notes.txt",
 ... )
 'server.txt'
 ```
@@ -172,14 +181,34 @@ requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.re
 
 ## 預設檔名 {#the-default-name}
 
-`default_name` 用在沒有任何地方提供檔名，或取得的檔名只由 `-` 和 `_` 組成的時候。`download` 是 DevTools 使用的預設檔名。`default_name` 是空字串時，會改用網址的主機名稱（如果有的話）：
+`default_name` 用在沒有任何地方提供檔名，或取得的檔名只由 `-` 和 `_` 組成的時候。`download` 是 DevTools 使用的預設檔名。`default_name=None` 時，沒有任何地方提供檔名就改用網址的主機名稱（如果有的話），其他情況用 `download`。`default_name` 傳入空字串會丟出 `ValueError`。
 
 ```pycon
->>> suggested_filename("https://example.com/", default_name="untitled")
+>>> suggested_filename(url="https://example.com/", default_name="untitled")
 'untitled'
->>> suggested_filename("https://example.com/", default_name="")
+>>> suggested_filename(url="https://example.com/", default_name=None)
 'example.com'
 ```
+
+## 清洗任意名稱 {#sanitize-a-name}
+
+`sanitize_filename` 把 Chrome 的清洗規則套用在其他來源的名稱上，例如網頁標題或使用者輸入。它清洗名稱的方式跟 Chrome 清洗 `<a download>` 屬性的值相同，所以拿來存檔跟 `suggested_filename` 的結果一樣安全：
+
+```pycon
+>>> from browser_download_filename import sanitize_filename
+>>> sanitize_filename("Q3 report: draft?.pdf")
+'Q3 report_ draft_.pdf'
+>>> sanitize_filename("季度報告.pdf")
+'季度報告.pdf'
+>>> sanitize_filename("../../etc/passwd")
+'_.._etc_passwd'
+>>> sanitize_filename("con.txt", platform="windows")
+'_con.txt'
+>>> sanitize_filename("...", default_name="untitled")
+'untitled'
+```
+
+`default_name` 和 `platform` 的用法跟 `suggested_filename` 相同，只是 `default_name` 不能是 `None`：這裡沒有網址可以取主機名稱。
 
 ## 只解析標頭 {#parse-a-header}
 
@@ -205,6 +234,7 @@ ContentDisposition(type='inline', filename=None)
 | --- | --- |
 | `pyrfc6266.parse_filename(header)` | `parse_content_disposition(header).filename` |
 | `email.message.Message.get_filename()` | `parse_content_disposition(header).filename` |
-| 自己寫的網址備援與檔名清洗 | `suggested_filename(url, header)` |
+| 自己寫的網址備援與檔名清洗 | `suggested_filename(url=url, content_disposition=header)` |
+| 自己寫的、清洗其他來源名稱的程式 | `sanitize_filename(name)` |
 
 `parse_content_disposition` 遇到格式錯誤的標頭不會丟出例外，沒有可用的檔名時回傳 `None`。凡是 Chromium 跟嚴格照 RFC 的解析器結果不同的地方，本套件都跟著 Chromium，這正是它的用意。

@@ -50,26 +50,24 @@ from browser_download_filename._url import parse_url
     ],
 )
 def test_file_name_from_url(url: str, expected: str) -> None:
-    assert suggested_filename(url) == expected
+    assert suggested_filename(url=url) == expected
 
 
-def test_query_lets_mime_type_replace_extension() -> None:
-    assert suggested_filename("https://example.com/get.php?id=1", mime_type="application/pdf") == (
+def test_query_lets_content_type_replace_extension() -> None:
+    pdf = "application/pdf"
+    assert suggested_filename(url="https://example.com/get.php?id=1", content_type=pdf) == (
         "get.pdf"
     )
-    assert suggested_filename("https://example.com/get.php?", mime_type="application/pdf") == (
-        "get.pdf"
-    )
-    assert suggested_filename("https://example.com/get.php", mime_type="application/pdf") == (
-        "get.php"
-    )
+    assert suggested_filename(url="https://example.com/get.php?", content_type=pdf) == "get.pdf"
+    assert suggested_filename(url="https://example.com/get.php", content_type=pdf) == "get.php"
 
 
 def test_host_is_the_last_resort_without_default_name() -> None:
-    assert suggested_filename("https://Example.COM/", default_name="") == "example.com"
-    assert suggested_filename("https://例え.jp/", default_name="") == "xn--r8jz45g.jp"
-    assert suggested_filename("https://[::1]:8080/", default_name="") == "[__1]"
-    assert suggested_filename("file:///", default_name="") == "download"
+    assert suggested_filename(url="https://Example.COM/", default_name=None) == "example.com"
+    assert suggested_filename(url="https://例え.jp/", default_name=None) == "xn--r8jz45g.jp"
+    assert suggested_filename(url="https://[::1]:8080/", default_name=None) == "[__1]"
+    assert suggested_filename(url="file:///", default_name=None) == "download"
+    assert suggested_filename(default_name=None) == "download"
 
 
 def test_parse_url_parts() -> None:

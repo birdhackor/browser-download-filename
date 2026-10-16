@@ -28,10 +28,12 @@ def chromium_expectation(case: BrowserCase, url: str) -> str | None:
     # The download code passes on the first value only
     # (HttpResponseHeaders::EnumerateHeader).
     return suggested_filename(
-        url,
-        values[0] if values else None,
-        suggested_name=case.download_attribute,
-        mime_type=case.content_type,
+        url=url,
+        content_disposition=values[0] if values else None,
+        content_type=case.content_type,
+        download_attribute=case.download_attribute,
+        # The package models Chrome on Linux, where CI runs this comparison.
+        platform="posix",
     )
 
 

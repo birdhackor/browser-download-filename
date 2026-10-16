@@ -9,34 +9,39 @@ the body.
 
 ```pycon
 >>> from browser_download_filename import parse_content_disposition, suggested_filename
->>> suggested_filename(None, 'attachment; filename="Q3 report.pdf"')
+>>> suggested_filename(content_disposition='attachment; filename="Q3 report.pdf"')
 'Q3 report.pdf'
->>> suggested_filename("https://example.com/files/report.pdf", 'attachment; filename="Q3 report.pdf"')
+>>> suggested_filename(
+...     url="https://example.com/files/report.pdf",
+...     content_disposition='attachment; filename="Q3 report.pdf"',
+... )
 'Q3 report.pdf'
->>> suggested_filename("https://example.com/files/report.pdf?id=1", "attachment")
+>>> suggested_filename(
+...     url="https://example.com/files/report.pdf?id=1", content_disposition="attachment"
+... )
 'report.pdf'
->>> suggested_filename(None, "attachment")
+>>> suggested_filename(content_disposition="attachment")
 'download'
 ```
 
 Chrome takes the name from the first of these that gives one:
 
-1. the Content-Disposition header, the second argument; leave it out or pass
+1. `content_disposition`, the Content-Disposition header; leave it out or pass
    `None` when the response has none;
-2. `suggested_name`, the value of an `<a download>` attribute (see
+2. `download_attribute`, the value of an `<a download>` attribute (see
    [The download attribute](#the-download-attribute));
-3. the URL, the first argument: the last segment of its path, percent-decoded,
-   without the query string (`about:` and `data:` URLs give none);
+3. `url`, the URL: the last segment of its path, percent-decoded, without the
+   query string (`about:` and `data:` URLs give none);
 4. `default_name`, which is `download` unless you pass another (see
    [The default name](#the-default-name)).
 
-The URL is the final URL of the response, after redirects. It only matters
+`url` is the final URL of the response, after redirects. It only matters
 when the header gives no name, for example when the response has no
 Content-Disposition, when the header has neither `filename` nor `filename*`,
 or when the name in it cannot be decoded (see
-[Decode legacy charsets](#decode-legacy-charsets)). Pass `None` when you have
+[Decode legacy charsets](#decode-legacy-charsets)). Leave it out when you have
 no URL, and Chrome goes on to `default_name` instead. When the name comes from
-a URL with a query string, `mime_type` may also replace its extension (see
+a URL with a query string, `content_type` may also replace its extension (see
 [Add an extension from the Content-Type](#add-an-extension-from-the-content-type)).
 
 The result is always one non-empty file name: it never contains `/` or `\`,
@@ -49,9 +54,11 @@ from pathlib import Path
 path = Path(download_dir) / name
 ```
 
-When a file with that name already exists, Chrome numbers the new one
-(`report (1).pdf`). This package does not look at the file system, so what to
-do with an existing file is up to you.
+The package only suggests a name; it does not touch the file system. Two
+things are up to you: the name can be longer than the file system allows (ext4
+on Linux, for example, takes at most 255 bytes per file name, which is about 85
+Chinese characters in UTF-8), and a file with that name may already exist
+(Chrome numbers the new one: `report (1).pdf`).
 
 ## Pass the header from your HTTP library
 
@@ -69,8 +76,8 @@ from browser_download_filename import suggested_filename
 response = requests.get(url)
 header = response.headers.get("Content-Disposition")
 name = suggested_filename(
-    response.url,
-    header.encode("latin-1") if header is not None else None,
+    url=response.url,
+    content_disposition=header.encode("latin-1") if header is not None else None,
 )
 ```
 
@@ -89,8 +96,10 @@ with httpx.stream("GET", url, follow_redirects=True) as response:
     response.raise_for_status()
     header = response.headers.get("Content-Disposition")
     name = suggested_filename(
-        str(response.url),
-        header.encode(response.headers.encoding) if header is not None else None,
+        url=str(response.url),
+        content_disposition=(
+            header.encode(response.headers.encoding) if header is not None else None
+        ),
     )
     with open(Path(download_dir) / name, "wb") as file:
         for chunk in response.iter_bytes():
@@ -104,8 +113,8 @@ can be passed as it is:
 ```python
 async with session.get(url) as response:
     name = suggested_filename(
-        str(response.url),
-        response.headers.get("Content-Disposition"),
+        url=str(response.url),
+        content_disposition=response.headers.get("Content-Disposition"),
     )
 ```
 
@@ -129,17 +138,20 @@ your HTTP library dropped, and it always returns a name: here, `a`.
 
 ## Add an extension from the Content-Type
 
-Pass the response's Content-Type as `mime_type` to get Chrome's extension rules:
+Pass the response's Content-Type, as str or bytes, as `content_type` to get
+Chrome's extension rules:
 
 ```pycon
->>> suggested_filename("https://example.com/report", mime_type="application/pdf")
+>>> suggested_filename(url="https://example.com/report", content_type="application/pdf")
 'report.pdf'
->>> suggested_filename("https://example.com/get.php?id=1", mime_type="application/pdf")
+>>> suggested_filename(url="https://example.com/get.php?id=1", content_type="application/pdf")
 'get.pdf'
->>> suggested_filename("https://example.com/get.php", mime_type="application/pdf")
+>>> suggested_filename(url="https://example.com/get.php", content_type="application/pdf")
 'get.php'
 >>> suggested_filename(
-...     "https://example.com/x", 'attachment; filename="report"', mime_type="application/pdf"
+...     url="https://example.com/x",
+...     content_disposition='attachment; filename="report"',
+...     content_type="application/pdf",
 ... )
 'report'
 ```
@@ -169,11 +181,13 @@ save, pass the encoding as `fallback_charset`:
 
 ```pycon
 >>> header = b'attachment; filename="caf\xe9.txt"'
->>> suggested_filename("https://example.com/get", header)
+>>> suggested_filename(url="https://example.com/get", content_disposition=header)
 'get'
->>> suggested_filename("https://example.com/get", header, fallback_charset="windows-1252")
+>>> suggested_filename(
+...     url="https://example.com/get", content_disposition=header, fallback_charset="windows-1252"
+... )
 'café.txt'
->>> suggested_filename("https://example.com/%A4%A4%A4%E5.txt", fallback_charset="big5")
+>>> suggested_filename(url="https://example.com/%A4%A4%A4%E5.txt", fallback_charset="big5")
 '中文.txt'
 ```
 
@@ -185,19 +199,20 @@ Encoding Standard](https://encoding.spec.whatwg.org/#names-and-labels);
 ## Windows
 
 `platform` picks Chrome's rules for Linux, macOS and other POSIX systems
-(`"posix"`, the default) or for Windows (`"windows"`). Use `"windows"` when the
-file will be saved on Windows:
+(`"posix"`) or for Windows (`"windows"`). By default it follows the operating
+system the code runs on: Windows' rules on Windows, the POSIX rules everywhere
+else. To get the same name wherever the code runs, pass `platform="posix"` or
+`platform="windows"`, for example when the file will be saved on another
+machine:
 
 ```pycon
->>> suggested_filename("https://example.com/x", 'attachment; filename="con.txt"', platform="windows")
+>>> suggested_filename(content_disposition='attachment; filename="con.txt"', platform="posix")
+'con.txt'
+>>> suggested_filename(content_disposition='attachment; filename="con.txt"', platform="windows")
 '_con.txt'
->>> suggested_filename(
-...     "https://example.com/x", 'attachment; filename="report.pdf..."', platform="windows"
-... )
+>>> suggested_filename(content_disposition='attachment; filename="report.pdf..."', platform="windows")
 'report.pdf___'
->>> suggested_filename(
-...     "https://example.com/x", 'attachment; filename="invoice.pdf.lnk"', platform="windows"
-... )
+>>> suggested_filename(content_disposition='attachment; filename="invoice.pdf.lnk"', platform="windows")
 'invoice.pdf.download'
 ```
 
@@ -213,16 +228,16 @@ On Windows, Chrome also
 
 ## The download attribute
 
-The value of an `<a download="...">` attribute is `suggested_name`. A name
+The value of an `<a download="...">` attribute is `download_attribute`. A name
 from Content-Disposition comes before it; the URL comes after:
 
 ```pycon
->>> suggested_filename("https://example.com/files/1234", suggested_name="notes.txt")
+>>> suggested_filename(url="https://example.com/files/1234", download_attribute="notes.txt")
 'notes.txt'
 >>> suggested_filename(
-...     "https://example.com/files/1234",
-...     'attachment; filename="server.txt"',
-...     suggested_name="notes.txt",
+...     url="https://example.com/files/1234",
+...     content_disposition='attachment; filename="server.txt"',
+...     download_attribute="notes.txt",
 ... )
 'server.txt'
 ```
@@ -234,14 +249,40 @@ links to the same origin and for `data:` and `blob:` URLs.
 
 `default_name` is the name used when nothing else gives one, or when what
 does is made only of `-` and `_`. `download` is the default name DevTools uses.
-With an empty `default_name`, the URL's host is used, if there is one:
+With `default_name=None`, the URL's host is used when nothing else gives a
+name, if there is one, and `download` otherwise. An empty `default_name` raises
+`ValueError`.
 
 ```pycon
->>> suggested_filename("https://example.com/", default_name="untitled")
+>>> suggested_filename(url="https://example.com/", default_name="untitled")
 'untitled'
->>> suggested_filename("https://example.com/", default_name="")
+>>> suggested_filename(url="https://example.com/", default_name=None)
 'example.com'
 ```
+
+## Sanitize a name
+
+`sanitize_filename` applies Chrome's cleaning rules to a name from anywhere
+else, such as a page title or user input. It cleans the name as Chrome cleans
+an `<a download>` value, so the result is as safe to save under as what
+`suggested_filename` returns:
+
+```pycon
+>>> from browser_download_filename import sanitize_filename
+>>> sanitize_filename("Q3 report: draft?.pdf")
+'Q3 report_ draft_.pdf'
+>>> sanitize_filename("季度報告.pdf")
+'季度報告.pdf'
+>>> sanitize_filename("../../etc/passwd")
+'_.._etc_passwd'
+>>> sanitize_filename("con.txt", platform="windows")
+'_con.txt'
+>>> sanitize_filename("...", default_name="untitled")
+'untitled'
+```
+
+`default_name` and `platform` work as in `suggested_filename`, except that
+`default_name` cannot be `None`: there is no URL to take a host from.
 
 ## Parse a header
 
@@ -271,7 +312,8 @@ and `attachment` count as `attachment`, as they do in Chromium.
 | --- | --- |
 | `pyrfc6266.parse_filename(header)` | `parse_content_disposition(header).filename` |
 | `email.message.Message.get_filename()` | `parse_content_disposition(header).filename` |
-| Your own URL fallback and file name cleaning | `suggested_filename(url, header)` |
+| Your own URL fallback and file name cleaning | `suggested_filename(url=url, content_disposition=header)` |
+| Your own cleaning of a name from elsewhere | `sanitize_filename(name)` |
 
 `parse_content_disposition` never raises on a malformed header and returns
 `None` when there is no usable name. Its results differ from parsers that

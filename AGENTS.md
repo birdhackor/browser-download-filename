@@ -47,25 +47,25 @@ uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
 
 ## 架構
 
-公開 API 只有 `__init__.py` 匯出的 `parse_content_disposition`、`suggested_filename`、`ContentDisposition` 與 `__version__`，其餘都是私有模組。移植的函式沿用 Chromium 的名字（轉成 snake_case），或在 docstring 寫出對應的 Chromium 函式（如 `HttpUtil::TrimLWS`、`GetSuggestedFilenameImpl`）；要對照上游，就搜尋那個名字。
+公開 API 只有 `__init__.py` 匯出的 `parse_content_disposition`、`suggested_filename`、`sanitize_filename`、`ContentDisposition` 與 `__version__`，其餘都是私有模組。移植的函式沿用 Chromium 的名字（轉成 snake_case），或在 docstring 寫出對應的 Chromium 函式（如 `HttpUtil::TrimLWS`、`GetSuggestedFilenameImpl`）；要對照上游，就搜尋那個名字。
 
 處理順序：
 
 1. **還原位元組**（`_bytes.header_bytes`）：Chromium 解析的是線上的原始位元組，所以所有解析都在 `bytes` 上做。HTTP 函式庫給的 `str` 先還原：每個字元都在 U+0000–U+00FF、而且這些 Latin-1 位元組是合法 UTF-8 時，直接用它們（requests、urllib3、`http.client` 的情形）；否則當成文字以 UTF-8 編碼，surrogate escape（aiohttp）還原成原本的位元組。
 2. **切標頭**（`_http`，HttpUtil 的迭代器）：只讀第一個逗號分隔值。參數由左到右讀，遇到第一個格式錯誤的參數就結束。
 3. **解析 Content-Disposition**（`_content_disposition._parse`）：`filename*`（RFC 8187）解得開就優先，否則用 `filename`。後者照瀏覽器而不是 RFC 解碼，規則見 `docs/en/behavior.md` 的〈Reading Content-Disposition〉。`parse_content_disposition` 給的檔名**沒有清洗**，可能含路徑分隔符號。
-4. **產生檔名**（`_filename.suggested_filename` → `_generate`）：依序取 Content-Disposition、`suggested_name`（`<a download>` 的值）、URL 路徑最後一段（`_url` 只重現 GURL 中會影響檔名的部分）、host（僅在 `default_name` 為空時）；接著清洗、替換非法字元、依 MIME 補上或修正副檔名（名字來自 Content-Disposition 時不動副檔名）。
+4. **產生檔名**（`_filename.suggested_filename` → `_generate`）：依序取 Content-Disposition、`download_attribute`（`<a download>` 的值）、URL 路徑最後一段（`_url` 只重現 GURL 中會影響檔名的部分）、host（僅在 `default_name` 為 `None` 時）；接著清洗、替換非法字元、依 MIME 補上或修正副檔名（名字來自 Content-Disposition 時不動副檔名）。`sanitize_filename` 走同一條路徑，等於只給 `download_attribute` 的 `suggested_filename`。
 5. **字元集**（`_charset`）：模擬 Chromium 內建的 ICU。名稱以 `strip_for_compare` 鬆散比對 `CHARSET_ALIASES`，用的是 WHATWG 標籤，所以 `ISO-8859-1` 是 windows-1252。單位元組字元集查產生的表；多位元組字元集用 Python codec，其中有 ICU 狀態表的（`MULTI_BYTE_STATES`）另依狀態表切字元，並套用產生的修正。
 
 對照 Chromium 時要知道的：
 
-- 公開參數 `fallback_charset` 在內部沿用 Chromium 的名字 `referrer_charset`。
-- `platform="windows"` 對應 Chromium 的 `#if BUILDFLAG(IS_WIN)` 分支（內部是 `windows: bool`）。其他依作業系統而異的部分（非 UTF-8 的原始位元組、MIME 資料庫）以 Linux 上的 Chrome 為準；CI 的 Chromium 比對也在 Linux 跑。
+- 公開參數 `fallback_charset`、`content_type`、`download_attribute` 在內部沿用 Chromium 的名字 `referrer_charset`、`mime_type`、`suggested_name`；`default_name=None` 在內部是 Chromium 的空字串 default name。
+- `platform="windows"` 對應 Chromium 的 `#if BUILDFLAG(IS_WIN)` 分支（內部是 `windows: bool`）。預設的 `None` 在呼叫時依 `sys.platform` 決定：Windows 上用 Windows 規則，其他用 POSIX 規則；所以結果會因平台而不同的測試與文件範例要明確傳 `platform=`，不能依賴執行它的作業系統。其他依作業系統而異的部分（非 UTF-8 的原始位元組、MIME 資料庫）以 Linux 上的 Chrome 為準；CI 的 Chromium 比對也在 Linux 跑。
 
 有測試守著的不變式（`test_properties.py`、`test_input.py`）：
 
-- 格式錯誤的標頭**永不 raise**，回傳 Chromium 對它的解讀。只有呼叫端的錯誤會丟例外：型別不對（`TypeError`）、Chromium 開不了的 `fallback_charset`（`LookupError`）、未知的 `platform`（`ValueError`）。
-- `suggested_filename` 永遠回傳非空、可以當檔名的字串。
+- 格式錯誤的標頭**永不 raise**，回傳 Chromium 對它的解讀。只有呼叫端的錯誤會丟例外：型別不對（`TypeError`）、Chromium 開不了的 `fallback_charset`（`LookupError`）、未知的 `platform` 或空字串的 `default_name`（`ValueError`）。
+- `suggested_filename` 與 `sanitize_filename` 永遠回傳非空、可以當檔名的字串。
 - 惡意構造的大輸入必須很快處理完（`test_large_adversarial_inputs_are_fast` 會計時）。改 `_http` 的 regex 或解碼迴圈時，注意回溯與二次方的行為。
 
 ### 產生的資料

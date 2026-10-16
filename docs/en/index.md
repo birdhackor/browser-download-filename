@@ -15,7 +15,7 @@ python -m pip install browser-download-filename
 ```pycon
 >>> from browser_download_filename import suggested_filename
 >>> header = b"attachment; filename=report.pdf; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf"
->>> suggested_filename("https://example.com/download?id=42", header)
+>>> suggested_filename(url="https://example.com/download?id=42", content_disposition=header)
 '報告.pdf'
 ```
 
@@ -56,12 +56,14 @@ leading and trailing dots are removed, so `../../etc/passwd` becomes
 
 | Function | What it does |
 | --- | --- |
-| `suggested_filename(url, content_disposition, ...)` | The file name Chrome picks for a download: from Content-Disposition, an `<a download>` value, the URL or a default, then sanitized. Optional arguments add Chrome's extension rules for a MIME type and its Windows rules. |
+| `suggested_filename(url=..., content_disposition=..., ...)` | The file name Chrome picks for a download: from Content-Disposition, an `<a download>` value, the URL or a default, then sanitized. Optional arguments add Chrome's extension rules for a MIME type and choose between its Windows and POSIX rules. |
+| `sanitize_filename(name)` | Chrome's sanitization applied to a name from anywhere, such as a page title or user input, the way Chrome cleans an `<a download>` value. |
 | `parse_content_disposition(value)` | The disposition type and the decoded file name of a header, as Chromium reads them, without sanitizing. |
 
-Both take the header as bytes or as a str, never raise on a malformed header,
-and have no dependencies outside the standard library. The package supports
-CPython 3.11 and later, and PyPy.
+`suggested_filename` and `parse_content_disposition` take the header as bytes
+or as a str and never raise on a malformed header. The package has no
+dependencies outside the standard library and supports CPython 3.11 and later,
+and PyPy.
 
 ## How exact it is
 

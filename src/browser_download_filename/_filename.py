@@ -9,6 +9,7 @@ ones.
 from __future__ import annotations
 
 import re
+import sys
 from typing import Literal
 
 from ._bytes import (
@@ -321,41 +322,73 @@ def _file_name_from_url(url: ParsedURL | None, referrer_charset: bytes | None) -
     return decoded, bool(decoded) and url.has_query
 
 
+def _uses_windows_rules(platform: Platform | None) -> bool:
+    """Whether Chromium's Windows rules apply; None follows the running system."""
+    if platform is None:
+        return sys.platform == "win32"
+    if platform not in ("posix", "windows"):
+        raise ValueError(f"platform must be 'posix', 'windows' or None, not {platform!r}")
+    return platform == "windows"
+
+
+def _content_type_text(content_type: str | bytes | None) -> str | None:
+    """The Content-Type as text for the MIME parsing; bytes are read as Latin-1.
+
+    Latin-1 maps every byte to one character, so the type and subtype keep
+    their characters, and any byte outside a token stays outside one.
+    """
+    if content_type is None or isinstance(content_type, str):
+        return content_type
+    if not isinstance(content_type, (bytes, bytearray, memoryview)):
+        raise TypeError(
+            f"content_type must be str, bytes or None, not {type(content_type).__name__}"
+        )
+    return bytes(content_type).decode("latin-1")
+
+
 def suggested_filename(
-    url: str | None,
-    content_disposition: str | bytes | None = None,
     *,
-    suggested_name: str | None = None,
-    mime_type: str | None = None,
-    default_name: str = "download",
+    url: str | None = None,
+    content_disposition: str | bytes | None = None,
+    content_type: str | bytes | None = None,
+    download_attribute: str | None = None,
+    default_name: str | None = "download",
     fallback_charset: str | None = None,
-    platform: Platform = "posix",
+    platform: Platform | None = None,
 ) -> str:
     """The filename Chromium suggests for a download. Never empty.
 
     This is net::GetSuggestedFilename, the name Chrome reports to DevTools
     (and Playwright) when a download starts: the Content-Disposition
-    filename, else ``suggested_name`` (an ``<a download>`` value), else the
-    last segment of the URL path, else ``default_name`` (or, if that is empty,
-    the URL's host), then sanitized for use as a file name.
+    filename, else ``download_attribute`` (an ``<a download>`` value), else
+    the last segment of the URL path, else ``default_name`` (or, if that is
+    None, the URL's host and then ``"download"``), then sanitized for use as
+    a file name.
 
-    ``url`` is the final URL of the response, after redirects. ``mime_type``
-    is the response's Content-Type (parameters are ignored); it only adds or
-    corrects an extension when the name did not come from Content-Disposition.
-    ``fallback_charset`` is as in :func:`parse_content_disposition` and also
-    applies to %-escaped non-UTF-8 bytes in the URL. ``platform`` chooses
-    Chromium's rules for Linux, macOS and other POSIX systems (``"posix"``) or
-    for Windows (``"windows"``), which also handles reserved device names,
-    trailing dots and spaces, and shell-integrated extensions.
+    ``url`` is the final URL of the response, after redirects.
+    ``content_type`` is the response's Content-Type, as str or bytes
+    (parameters are ignored); it only adds or corrects an extension when the
+    name did not come from Content-Disposition. ``fallback_charset`` is as in
+    :func:`parse_content_disposition` and also applies to %-escaped non-UTF-8
+    bytes in the URL. ``platform`` chooses Chromium's rules for Linux, macOS
+    and other POSIX systems (``"posix"``) or for Windows (``"windows"``),
+    which also handles reserved device names, trailing dots and spaces, and
+    shell-integrated extensions; None picks the rules of the system the call
+    runs on.
     """
     referrer_charset = require_charset(fallback_charset)
-    if platform not in ("posix", "windows"):
-        raise ValueError(f"platform must be 'posix' or 'windows', not {platform!r}")
-    for name, value in (("url", url), ("suggested_name", suggested_name), ("mime_type", mime_type)):
+    windows = _uses_windows_rules(platform)
+    for name, value in (("url", url), ("download_attribute", download_attribute)):
         if value is not None and not isinstance(value, str):
             raise TypeError(f"{name} must be str or None, not {type(value).__name__}")
-    if not isinstance(default_name, str):
-        raise TypeError(f"default_name must be str, not {type(default_name).__name__}")
+    mime_type = _content_type_text(content_type)
+    if default_name is None:
+        # Chromium's empty default name: the URL's host, then "download".
+        default_name = ""
+    elif not isinstance(default_name, str):
+        raise TypeError(f"default_name must be str or None, not {type(default_name).__name__}")
+    elif not default_name:
+        raise ValueError("default_name is empty; pass default_name=None to use the URL's host")
     content_disposition_filename = None
     if content_disposition is not None:
         header = first_comma_separated_value(header_bytes(content_disposition))
@@ -363,12 +396,35 @@ def suggested_filename(
     return _generate(
         parse_url(_scalar_values(url) if url else None),
         content_disposition_filename,
-        suggested_name=suggested_name,
+        suggested_name=download_attribute,
         mime_type=mime_type,
         default_name=default_name,
         referrer_charset=referrer_charset,
-        windows=platform == "windows",
+        windows=windows,
     )
+
+
+def sanitize_filename(
+    name: str,
+    *,
+    default_name: str = "download",
+    platform: Platform | None = None,
+) -> str:
+    """Clean any name, such as a page title, into a file name as Chrome does.
+
+    ``name`` is cleaned as Chrome cleans an ``<a download>`` value: the result
+    is what :func:`suggested_filename` returns for ``download_attribute=name``.
+    It is never empty: ``default_name``, which cannot be empty, is used where
+    :func:`suggested_filename` would use its default name. ``platform`` is as
+    in :func:`suggested_filename`.
+    """
+    if not isinstance(name, str):
+        raise TypeError(f"name must be str, not {type(name).__name__}")
+    if not isinstance(default_name, str):
+        raise TypeError(f"default_name must be str, not {type(default_name).__name__}")
+    if not default_name:
+        raise ValueError("default_name cannot be empty")
+    return suggested_filename(download_attribute=name, default_name=default_name, platform=platform)
 
 
 def _generate(

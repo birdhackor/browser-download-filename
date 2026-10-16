@@ -14,6 +14,7 @@ import browser_download_filename
 from browser_download_filename import (
     ContentDisposition,
     parse_content_disposition,
+    sanitize_filename,
     suggested_filename,
 )
 from browser_download_filename._data import CHROMIUM_REVISION, ICU_REVISION
@@ -26,6 +27,7 @@ def test_public_names() -> None:
         "ContentDisposition",
         "__version__",
         "parse_content_disposition",
+        "sanitize_filename",
         "suggested_filename",
     ]
 
@@ -55,20 +57,45 @@ def test_signatures() -> None:
     assert list(parameters) == [
         "url",
         "content_disposition",
-        "suggested_name",
-        "mime_type",
+        "content_type",
+        "download_attribute",
         "default_name",
         "fallback_charset",
         "platform",
     ]
     assert all(
-        parameters[name].kind is inspect.Parameter.KEYWORD_ONLY for name in list(parameters)[2:]
+        parameter.kind is inspect.Parameter.KEYWORD_ONLY for parameter in parameters.values()
+    )
+    assert {name: parameter.default for name, parameter in parameters.items()} == {
+        "url": None,
+        "content_disposition": None,
+        "content_type": None,
+        "download_attribute": None,
+        "default_name": "download",
+        "fallback_charset": None,
+        "platform": None,
+    }
+    parameters = inspect.signature(sanitize_filename).parameters
+    assert list(parameters) == ["name", "default_name", "platform"]
+    assert parameters["name"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert parameters["name"].default is inspect.Parameter.empty
+    assert parameters["default_name"].default == "download"
+    assert parameters["platform"].default is None
+    assert all(
+        parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+        for name in ("default_name", "platform")
     )
 
 
 @pytest.mark.parametrize(
     "member",
-    [browser_download_filename, ContentDisposition, parse_content_disposition, suggested_filename],
+    [
+        browser_download_filename,
+        ContentDisposition,
+        parse_content_disposition,
+        sanitize_filename,
+        suggested_filename,
+    ],
 )
 def test_documented(member: object) -> None:
     assert inspect.getdoc(member)
