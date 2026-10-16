@@ -4,18 +4,18 @@
 
 `browser-download-filename` 把 Chromium 的 Content-Disposition 解析器與下載檔名規則（`net::GetSuggestedFilename`）移植成純 Python、沒有執行期相依的套件。**對錯的標準是「跟 Chromium 給出同一個名字」**，不是 RFC：兩者不同時一律照 Chromium。
 
-`MAINTENANCE.md`（正體中文）是維護 runbook。以下流程照它的章節做，不要另起一套：〈跟進 Chromium〉（升級釘選的 Chromium／ICU revision）、〈升級 Playwright〉、〈Python 支援窗〉、〈發布〉、〈發布後與補救〉。
+`MAINTENANCE.md`（正體中文）是維護 runbook。以下流程照它的章節做，不要另起一套：〈跟進 Chromium〉（升級釘選的 Chromium／ICU revision）、〈升級 Playwright〉、〈HTTP 函式庫測試〉（HTTP 函式庫改了行為）、〈Python 支援窗〉、〈發布〉、〈發布後與補救〉。
 
 ## 常用指令
 
-`uv sync` 會裝預設的 `dev` group（test、lint，以及 Playwright 套件本身）。
+`uv sync` 會裝預設的 `dev` group（test、lint、Playwright 套件本身，以及使用說明示範或描述的 HTTP 函式庫：`http-clients` group）。
 
 ```sh
 uv sync
 uv run ruff check
 uv run ruff format --check
 uv run mypy          # strict；範圍是 src、tests、scripts、.github/scripts
-uv run pytest        # 沒有 --with-browser 時，tests/browser 一律 deselect
+uv run pytest        # 沒有 --with-browser、--with-http-clients 時，tests/browser、tests/http_clients 一律 deselect
 
 uv run pytest tests/test_url.py::test_parse_url_parts            # 單一測試
 uv run pytest tests/test_behavior.py -k precedence
@@ -32,6 +32,12 @@ uv run pytest tests/browser --with-browser chromium --browser-report browser-rep
 ```
 
 `--with-browser` 可重複指定 `chromium`、`firefox`、`webkit`；`--browser-report` 會在旁邊另寫一份 Markdown 摘要，只列結果不同的案例。
+
+HTTP 函式庫測試要 `http-clients` group 的函式庫（`uv sync` 已裝）；給了旗標卻缺函式庫時，pytest 直接報錯而不是 skip：
+
+```sh
+uv run pytest tests/http_clients --with-http-clients
+```
 
 檢查 `_data.py` 是否仍是 generator 的產物。需要網路，也需要 `unicodedata.unidata_version` 等於 `UNICODE_VERSION` 的 Python；拿掉 `--check` 就是重新產生：
 
@@ -84,11 +90,12 @@ uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
 - `test_docs.py` 執行 README 與 `docs/*/*.md` 裡每個 ```` ```pycon ```` 區塊，同一份文件的區塊共用命名空間；行為一改，範例的輸出也要跟著改。需要網路、不該執行的範例用 ```` ```python ````。它也禁止 README、`docs`、`MAINTENANCE.md`、`src`、`tests`、`scripts` 出現看不見或會重排文字的字元（例如 U+202E、全形空白）：程式碼裡寫成 escape，文件裡寫成 U+XXXX。
 - `test_charset.py` 把 ICU 狀態表接受的每個序列的解碼摘要跟 `MULTI_BYTE_DIGESTS` 比較，所以某個 Python 版本的 CJK codec 一改就會失敗。修法是讓 generator 把差異也寫成修正，不是放寬測試。
 - `tests/browser/`：本機伺服器依序逐位元組送出每個案例的標頭行與內容，經 Playwright 點連結下載，比對 `download.suggested_filename`。案例分兩組，在 `corpus.py` 逐案列出：**精確集合**（`exact_cases()`，標頭與網址就決定檔名）Chromium 必須跟本套件全部一致；**限制集合**（`limited_cases()`，`LimitedCase`：Chrome 會 sniff 內容）由另一個測試斷言下載有發生、Chromium 給出針對該內容列出的名字、本套件給出列出的退路名字。案例屬於哪一組由人列出，不能用本套件的 sniff 判斷式決定。Firefox 與 WebKit 跟 Chrome 不一致只記 xfail。Chromium 不一致時，先判斷是移植的 bug 還是 Chromium 改了行為，不要改預期值去遷就測試。新增語料案例時，id 必須唯一（`all_cases()` 會檢查），標頭值不能含 CR、LF、NUL。
+- `tests/http_clients/`：本機伺服器逐位元組送出每個案例的標頭行，httpx2、httpx、requests、aiohttp、`urllib.request` 照 `docs/*/usage.md` 的寫法取回並呼叫本套件，結果必須等於把送出的標頭行原樣傳入的結果；使用說明說「會不同」的傳法，把不同的結果寫成預期值。文件對這些函式庫的其他說法（例如解碼用的 codec、依名稱取標頭的結果、重新導向、`response.url` 的主機名稱）也在這裡檢查。aiohttp 的 C 與 Python 兩種 parser 都跑，C parser 不存在就失敗。改了使用說明、README 或 api-reference 裡的函式庫範例或說法，就一起改它。
 - pytest 開了 `--strict-markers`、`--strict-config` 與 `xfail_strict = true`。
 
 ## CI 會擋、本機不一定看得到的事
 
-- CI 測的是**建好的 wheel**，不是 `src/`，矩陣（`ci.yml` 的 `test`）也含 PyPy；另外把 sdist 解開、重建、再測一次。程式碼必須相容 `requires-python` 的下限，ruff 的 `target-version` 與 mypy 的 `python_version` 也設在那裡。
+- CI 測的是**建好的 wheel**，不是 `src/`，矩陣（`ci.yml` 的 `test`）也含 PyPy；另外把 sdist 解開、重建、再測一次。`http-clients` job 也裝建好的 wheel，在 `requires-python` 的下限與最新的 CPython 上帶 `--with-http-clients` 跑 `tests/http_clients`。程式碼必須相容 `requires-python` 的下限，ruff 的 `target-version` 與 mypy 的 `python_version` 也設在那裡。
 - `.github/scripts/check-dist.py` 寫死了 wheel 裡應有的套件檔案（`MODULES`，必須完全相同）、sdist 的必備檔案、`Requires-Python` 與 License-Expression，而且不准有任何執行期相依。增刪或搬動這些檔案、改到這些 metadata 時，一起改它。
 - 改了 `pyproject.toml` 的版本、相依或 `requires-python` 就執行 `uv lock`；CI 安裝環境時一律 `--locked`，lock 沒同步就直接失敗。
 - `README.md` 也是 PyPI 的套件頁，PyPI 會弄壞相對連結，所以裡面的連結一律寫絕對網址。

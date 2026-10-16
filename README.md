@@ -23,10 +23,10 @@ inside quotes. This package gives the name Chrome gives.
   tested with Chromium's own unit test cases. CI downloads more than 800 cases
   with a real Chromium and requires the same name for each one that the
   headers and the URL decide.
-- **Bytes or str** — pass the header as the bytes on the wire, or as the str
-  your HTTP library made of them; the Latin-1 strs of requests, urllib3 and
-  `http.client` and the surrogate-escaped strs of aiohttp are mapped back to
-  the bytes.
+- **Bytes or str** — pass the headers as the bytes on the wire, or as the
+  strs your HTTP library made of them, such as the Latin-1 strs of requests,
+  urllib3 and `http.client` or the surrogate-escaped strs of aiohttp; name the
+  codec as `headers_encoding`, and they are mapped back to the bytes exactly.
 - **Never raises on a malformed header** — it returns what Chromium makes of
   it.
 - **Safe names** — the result is a single file name, never empty, with path
@@ -48,9 +48,10 @@ pip install browser-download-filename      # or: uv add browser-download-filenam
 ```pycon
 >>> from browser_download_filename import parse_content_disposition, suggested_filename
 >>> header = b"attachment; filename=report.pdf; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf"
->>> suggested_filename(url="https://example.com/download?id=42", content_disposition=header)
+>>> headers = [("Content-Disposition", header)]
+>>> suggested_filename(headers, url="https://example.com/download?id=42")
 '報告.pdf'
->>> suggested_filename(content_disposition=header)
+>>> suggested_filename(headers)
 '報告.pdf'
 >>> suggested_filename(url="https://example.com/files/r%C3%A9sum%C3%A9.pdf")
 'résumé.pdf'
@@ -58,31 +59,39 @@ pip install browser-download-filename      # or: uv add browser-download-filenam
 ContentDisposition(type='attachment', filename='a;b;c.txt', blocks_download=False)
 ```
 
-`suggested_filename` downloads nothing: it takes the final URL of a response
-(after redirects) and its Content-Disposition header, and returns the name
-Chrome reports to DevTools and Playwright as the download's suggested file
-name. The URL is optional and only matters when the header gives no name:
-Chrome then takes the last segment of its path. Leave it out if you have no
-URL. With requests:
+`suggested_filename` downloads nothing: it takes the headers of a response and
+its final URL (after redirects), and returns the name Chrome reports to
+DevTools and Playwright as the download's suggested file name. The URL is
+optional: when the headers give no name, Chrome takes the last segment of its
+path. Leave it out if you have no URL. With httpx2:
 
 ```python
-import requests
+import httpx2
 from browser_download_filename import suggested_filename
 
-response = requests.get(url)
-header = response.headers.get("Content-Disposition")
-name = suggested_filename(
-    url=response.url,
-    content_disposition=header.encode("latin-1") if header else None,  # the bytes on the wire
-    content_type=response.headers.get("Content-Type"),
-)
+with httpx2.stream("GET", url, follow_redirects=True) as response:
+    name = suggested_filename(response.headers.raw, url=str(response.url))
+```
+
+`response.headers.raw` holds the header lines in bytes, each line on its own.
+The documentation shows the same for httpx, requests, aiohttp and
+`urllib.request`.
+
+`sanitize_filename` cleans a name from anywhere else, such as a page title or
+user input, as Chrome cleans an `<a download>` value:
+
+```pycon
+>>> from browser_download_filename import sanitize_filename
+>>> sanitize_filename("Q3 report: draft?.pdf")
+'Q3 report_ draft_.pdf'
 ```
 
 ## Documentation
 
-Full documentation (English / 正體中文), including usage with requests, httpx,
-httpx2, aiohttp and urllib, the options, how Chrome, Firefox and Safari differ,
-how the package is checked against Chromium, the API reference and a changelog:
+Full documentation (English / 正體中文), including usage with httpx2, httpx,
+requests, aiohttp and `urllib.request`, the options, how Chrome, Firefox and
+Safari differ, how the package is checked against Chromium, the API reference
+and a changelog:
 **https://birdhackor.github.io/browser-download-filename/**
 
 ## License

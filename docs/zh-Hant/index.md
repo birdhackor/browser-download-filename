@@ -11,11 +11,12 @@ python -m pip install browser-download-filename
 ```pycon
 >>> from browser_download_filename import suggested_filename
 >>> header = b"attachment; filename=report.pdf; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf"
->>> suggested_filename(url="https://example.com/download?id=42", content_disposition=header)
+>>> headers = [("Content-Disposition", header)]
+>>> suggested_filename(headers, url="https://example.com/download?id=42")
 '報告.pdf'
 ```
 
-結果就是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」，也是可以直接拿來存檔的安全檔名。從 requests、httpx、httpx2、aiohttp 和 urllib 傳入標頭的寫法，見[使用方式](usage.md)。
+結果就是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」，也是可以直接拿來存檔的安全檔名。從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭的寫法，見[使用方式](usage.md)。
 
 ## 為什麼需要它 {#why}
 

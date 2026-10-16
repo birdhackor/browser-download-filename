@@ -26,7 +26,7 @@ which is the name Chrome reports to DevTools and Playwright. It is never empty.
 | Parameter | Meaning |
 | --- | --- |
 | `headers` | The response's headers (see [`HeadersLike`](#headerslike)); `None` for none. Three headers are read from them: Content-Disposition, the first comma-separated value of its first line; every Content-Type line, for the MIME type; and X-Content-Type-Options, whose first value tells whether Chrome sniffs the body for another MIME type (see [The MIME type](behavior.md#the-mime-type)). |
-| `url` | The final URL of the response, after redirects; `None` for no URL. Used only when Content-Disposition and `download_attribute` give no name: the last segment of its path (none for `about:` and `data:` URLs), else its host if `default_name` is `None`. |
+| `url` | The final URL of the response, after redirects; `None` for no URL. When Content-Disposition and `download_attribute` give no name, the name comes from the last segment of its path (none for `about:` and `data:` URLs), else from its host if `default_name` is `None`. With `headers` or `content_type`, its scheme also decides whether Chrome may sniff the body for a MIME type: only `http:`, `https:`, `file:` and `filesystem:` URLs are sniffed, and the package assumes one of them when `url` is `None` (see [The MIME type](behavior.md#the-mime-type)). |
 | `content_disposition` | The Content-Disposition header, as bytes or as the str an HTTP library produced. `None`, the default, reads it from `headers`, if any. Any other value takes the place of every Content-Disposition line in `headers`, even an empty string: pass `""` to ignore the file name the server sent. Only its first comma-separated value is used. |
 | `content_type` | The Content-Type header, as bytes or as the str an HTTP library produced. `None`, the default, reads it from `headers`, if any. Any other value takes the place of every Content-Type line in `headers`; an empty string is an empty Content-Type. The MIME type adds or corrects an extension when the name does not come from Content-Disposition; with neither `headers` nor `content_type`, no MIME type is used. |
 | `download_attribute` | The value of an `<a download>` attribute. Used when Content-Disposition gives no name. |
@@ -68,14 +68,17 @@ The type of a response's headers, in the shapes HTTP libraries hold them:
 
 - an object with an `items()` method (`SupportsHeaderItems`), such as a dict,
   the `http.client.HTTPMessage` that `urllib.request` gives as
-  `response.headers`, or the headers of requests, httpx and aiohttp; the
-  package calls `items()`;
-- otherwise, an iterable of `(name, value)` pairs, such as a list of tuples.
+  `response.headers`, the urllib3 headers that requests gives as
+  `response.raw.headers`, or the `response.headers` of requests, httpx and
+  httpx2; the package calls `items()`;
+- otherwise, an iterable of `(name, value)` pairs, such as a list of tuples,
+  the `response.headers.raw` of httpx and httpx2, or aiohttp's
+  `response.raw_headers`.
 
 A name is a str or bytes, and names match whatever their ASCII case. A value
 (`HeaderValue`) is a str or bytes, or a list or tuple of them, one for each
-header line, as Scrapy gives them. The lines keep their order, and repeated
-lines all count. The headers are read only once, so a generator works too.
+header line. The lines keep their order, and repeated lines all count. The
+headers are read only once, so a generator works too.
 
 A str or bytes is not headers: `suggested_filename` raises `TypeError` for one;
 pass a single Content-Disposition value as `content_disposition`.
@@ -148,14 +151,15 @@ surrogate escapes turned back into the bytes they stand for
 (`value.encode(headers_encoding, "surrogateescape")`).
 
 Without it, the bytes are guessed. If every character is in U+0000–U+00FF and
-their Latin-1 bytes are valid UTF-8, those bytes are used; that is how
-requests, urllib3, `http.client` and WSGI pass on a header that carried UTF-8.
-Any other str is encoded as UTF-8, with the surrogate escapes that aiohttp uses
-for undecodable bytes turned back into those bytes. The guess can be wrong, for
-example for bytes in a legacy charset that an HTTP library decoded as Latin-1,
-such as `caf\xe9.txt` in windows-1252. It changes nothing in Content-Type and
-X-Content-Type-Options, though: only ASCII characters can match a MIME type or
-`nosniff`, and the guess always gives them back as the bytes they were.
+their Latin-1 bytes are valid UTF-8, those bytes are used; that is what
+requests, urllib3 and `http.client`, which `urllib.request` uses, give for a
+header that carried UTF-8. Any other str is encoded as UTF-8, with the
+surrogate escapes that aiohttp uses for undecodable bytes turned back into
+those bytes. The guess can be wrong, for example for bytes in a legacy charset
+that an HTTP library decoded as Latin-1, such as `caf\xe9.txt` in
+windows-1252. It changes nothing in Content-Type and X-Content-Type-Options,
+though: only ASCII characters can match a MIME type or `nosniff`, and the guess
+always gives them back as the bytes they were.
 
 URLs and the other str arguments are taken as text; lone surrogates in them
 become U+FFFD.

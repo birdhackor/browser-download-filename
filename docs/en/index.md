@@ -15,14 +15,15 @@ python -m pip install browser-download-filename
 ```pycon
 >>> from browser_download_filename import suggested_filename
 >>> header = b"attachment; filename=report.pdf; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf"
->>> suggested_filename(url="https://example.com/download?id=42", content_disposition=header)
+>>> headers = [("Content-Disposition", header)]
+>>> suggested_filename(headers, url="https://example.com/download?id=42")
 '報告.pdf'
 ```
 
 The result is what Chrome reports to DevTools and Playwright as the download's
 suggested file name, and a safe file name to save under. See
-[Usage](usage.md) for passing headers from requests, httpx, httpx2, aiohttp and
-urllib.
+[Usage](usage.md) for passing the headers from httpx2, httpx, requests, aiohttp
+and `urllib.request`.
 
 ## Why
 

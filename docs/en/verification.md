@@ -67,6 +67,26 @@ uv run pytest tests/browser --with-browser chromium --browser-report report.json
 `--with-browser` takes `chromium`, `firefox` or `webkit` and can be repeated;
 `--browser-report` also writes a Markdown summary next to the JSON file.
 
+## The HTTP libraries
+
+[Usage](usage.md#pass-the-headers-from-your-http-library) shows how to pass the
+headers from httpx2, httpx, requests, aiohttp and `urllib.request`. The tests
+in `tests/http_clients/` serve header lines byte for byte from a local HTTP
+server, among them repeated Content-Disposition lines, quotes left open, bytes
+in a legacy charset and in UTF-8, several Content-Type lines and
+X-Content-Type-Options. The tests fetch them with each library and pass the
+package what the usage page shows, and the result must be what the package
+gives for the lines as they were sent. Where the usage page says that another
+way gives another name, the tests check that name. They also check what the
+documentation says about the libraries themselves, and run aiohttp with both
+of its HTTP parsers. CI runs them on CPython 3.11 and 3.15, and the weekly
+canary with the newest versions of the libraries:
+
+```console
+uv sync
+uv run pytest tests/http_clients --with-http-clients
+```
+
 ## Properties
 
 Hypothesis generates inputs to check that:

@@ -162,8 +162,9 @@ for 423 and WebKit on macOS for 309.
   Python's IDNA 2003 codec. They can disagree on whether a host is valid (a
   right-to-left label that ends in a digit, a label longer than 63 characters)
   and on the host's ASCII form (`ß` and `ς`). This only matters for URLs with
-  non-ASCII hosts, which HTTP libraries do not put in `response.url`: requests,
-  httpx and aiohttp give the host in its ASCII form.
+  non-ASCII hosts. requests, httpx, httpx2 and aiohttp give the host in
+  `response.url` in its ASCII form, but `urllib.request` gives the URL as it
+  was requested.
 - **URL validity.** Hosts are not parsed as IPv4 addresses, so a URL that
   Chromium rejects for a malformed address can still give a name here. A URL
   that a browser could load gives the same name either way.

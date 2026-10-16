@@ -83,6 +83,39 @@ jobs:
         shell: bash
         run: uv run --no-sync python -m pytest -p no:cacheprovider
 
+  http-clients:
+    name: test with HTTP clients on Python ${{ matrix.python }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Python the package supports and the newest one CI tests.
+        python: ["3.11", "3.15"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      # As in the test job, the tests import the installed wheel.
+      - name: Install the locked test and HTTP client dependencies and the built wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --locked --only-group test --only-group http-clients --no-install-project \
+            --python "${{ matrix.python }}"
+          uv pip install --python .venv dist/*.whl
+      - name: Check that the documented ways of the HTTP libraries give what was sent
+        shell: bash
+        run: >-
+          uv run --no-sync python -m pytest tests/http_clients -p no:cacheprovider
+          --with-http-clients
+
   sdist:
     name: build and test the unpacked sdist
     needs: build
@@ -148,7 +181,7 @@ jobs:
 
   verify-batch:
     name: verify release batch
-    needs: [lint, test, sdist, manifest]
+    needs: [lint, test, http-clients, sdist, manifest]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,7 +219,7 @@ jobs:
     name: ci
     # Stable aggregate status check for branch protection: the matrix job
     # names change with the matrix, so required checks target this name.
-    needs: [lint, build, test, sdist, manifest, verify-batch]
+    needs: [lint, build, test, http-clients, sdist, manifest, verify-batch]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

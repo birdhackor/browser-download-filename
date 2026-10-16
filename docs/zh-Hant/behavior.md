@@ -70,6 +70,6 @@
 ## 移植的限制 {#limits-of-the-port}
 
 - **MIME sniffing。** Chrome 檢查內容來決定 MIME 類型時，本套件用宣告的類型，所以副檔名可能跟 Chrome 的不同。只模擬 Chrome 經由網路載入的下載：Playwright 的 `route.fulfill`，以及 `blob:`、`data:`、`file:` 網址，可能得到不同的 MIME 類型。
-- **主機名稱。** Chromium 用 UTS #46 轉換非 ASCII 的主機名稱，本套件用的是 Python 的 IDNA 2003 codec。兩者對某些主機名稱是否合法（以數字結尾的由右至左標籤、超過 63 個字元的標籤）以及主機名稱的 ASCII 形式（`ß` 和 `ς`）看法不同。這只影響主機名稱含非 ASCII 字元的網址，而 HTTP 函式庫不會把這種網址放進 `response.url`：requests、httpx 和 aiohttp 給的都是 ASCII 形式的主機名稱。
+- **主機名稱。** Chromium 用 UTS #46 轉換非 ASCII 的主機名稱，本套件用的是 Python 的 IDNA 2003 codec。兩者對某些主機名稱是否合法（以數字結尾的由右至左標籤、超過 63 個字元的標籤）以及主機名稱的 ASCII 形式（`ß` 和 `ς`）看法不同。這只影響主機名稱含非 ASCII 字元的網址。requests、httpx、httpx2 和 aiohttp 在 `response.url` 裡給的都是 ASCII 形式的主機名稱，`urllib.request` 則照請求時的網址原樣給出。
 - **網址是否合法。** 主機名稱不會被當成 IPv4 位址解析，所以 Chromium 因為位址格式錯誤而拒絕的網址，在這裡仍可能得到檔名。瀏覽器能載入的網址，兩邊得到的檔名都相同。
 - **Unicode 版本。** `filename*` 的 NFC 正規化用的是執行中 Python 的 Unicode 版本；Chromium 的 ICU 是 Unicode 17.0，Python 3.15 也是。兩者只會在舊版本沒有的字元上不同。

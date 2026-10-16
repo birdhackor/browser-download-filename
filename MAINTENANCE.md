@@ -4,8 +4,9 @@
 
 工具鏈以 uv 管理，CI 釘在 uv 0.13.1（`setup-uv` 的 `version`），build backend 是同一條線的
 `uv_build`（`pyproject.toml` 的 `[build-system]`）。`uv sync` 會裝好預設的 `dev` group
-（`test`、`lint` 與 `browser`）。`browser` 只有 Playwright 套件本身，放進 `dev` 是為了讓 mypy
-用 Playwright 的型別檢查瀏覽器測試；瀏覽器要另外用 `playwright install` 安裝：
+（`test`、`lint`、`browser` 與 `http-clients`）。`browser` 只有 Playwright 套件本身，
+`http-clients` 是使用說明示範或描述的 HTTP 函式庫；兩者放進 `dev`，是為了讓 mypy 用它們的型別
+檢查瀏覽器測試與 HTTP 函式庫測試。瀏覽器要另外用 `playwright install` 安裝：
 
 ```sh
 uv sync
@@ -21,24 +22,29 @@ uv run pytest
 `docs/*/*.md` 裡的 ```` ```pycon ```` 範例，並禁止 README、文件與原始碼出現 U+202E 這類
 看不見或會重排文字的字元（程式碼裡寫成 escape，文件裡寫成 U+XXXX）；
 `test_api.py` 鎖住公開 API 的名稱與簽章。`tests/browser/` 是瀏覽器比對測試，沒有
-`--with-browser` 時一律 deselect。
+`--with-browser` 時一律 deselect；`tests/http_clients/` 檢查文件對 HTTP 函式庫的寫法與說法，
+沒有 `--with-http-clients` 時一律 deselect（見〈HTTP 函式庫測試〉）。
 
 文件裡的 ```` ```pycon ```` 區塊都會被測試執行，改 API 或行為時，範例的輸出也要跟著改。
-不想被執行的程式碼（需要網路的 requests／httpx／aiohttp 範例）用 ```` ```python ````。
+不想被執行的程式碼（需要網路的 HTTP 函式庫範例，例如 httpx2、requests、aiohttp）用
+```` ```python ````；這些範例的寫法由 `tests/http_clients/` 檢查（見〈HTTP 函式庫測試〉）。
 
 ## Python 支援窗
 
 `requires-python = ">=3.11"`。CI matrix（`.github/workflows/ci.yml` 的 `test`）跑
 CPython 3.11–3.15、PyPy 3.11 的 Ubuntu，加上 3.15 的 macOS 與 Windows；測的是建好的
 wheel，不是 `src/`。純 Python 套件沒有 ABI 問題，所以只有一顆 `py3-none-any` wheel。
+同一個 workflow 的 `http-clients` job 只跑支援範圍的兩端，也就是 Ubuntu 上的 CPython 3.11 與
+3.15，同樣裝建好的 wheel（見〈HTTP 函式庫測試〉）。
 
 - 新的 CPython 進入 beta 後，weekly canary 就會用它跑已發布的套件（見下文）；到 RC 或正式版時
-  把它加進 CI matrix 與 `pyproject.toml` 的 classifiers，並更新 README、`docs/*/index.md`、
-  `docs/*/verification.md` 與這份文件。
+  把它加進 CI matrix 與 `pyproject.toml` 的 classifiers，`http-clients` job 的最新版也換成它
+  （aiohttp 要先有這個版本的 wheel，見〈HTTP 函式庫測試〉），並更新 README、
+  `docs/*/index.md`、`docs/*/verification.md` 與這份文件。
 - 某個版本 EOL 後，在下一個 minor 版移除：調高 `requires-python` 並執行 `uv lock`（lock 也記著
-  它，沒同步 `--locked` 就會失敗）、改 matrix、classifiers、`tool.ruff` 的 `target-version`、
-  `tool.mypy` 的 `python_version`、`.github/scripts/check-dist.py` 檢查的 `Requires-Python`
-  與文件。
+  它，沒同步 `--locked` 就會失敗）、改 matrix（`test`，以及 `http-clients` 的下限）、
+  classifiers、`tool.ruff` 的 `target-version`、`tool.mypy` 的 `python_version`、
+  `.github/scripts/check-dist.py` 檢查的 `Requires-Python` 與文件。
 - `lint` job 用最新的 CPython（目前 3.15）。`scripts/generate_data.py` 則必須用 `unicodedata`
   版本等於 `UNICODE_VERSION` 的 CPython，見〈跟進 Chromium〉。
 
@@ -92,6 +98,38 @@ Playwright 等於換掉比對的基準瀏覽器。
    合併後用新的報告更新它們。
 
 weekly canary 的 `newest-chromium` job 會先用最新的 Playwright 跑一次，讓這類變化提早出現。
+
+## HTTP 函式庫測試
+
+使用說明（`docs/*/usage.md`）教使用者怎麼把 httpx2、httpx、requests、aiohttp 和
+`urllib.request` 的回應標頭交給本套件，文件也描述了這些函式庫本身的行為，例如用什麼
+codec 解碼標頭、依名稱取標頭時給什麼、`response.url` 的主機名稱是什麼形式。`http-clients`
+dependency group 裝這些第三方函式庫，以及 requests 底下的 urllib3（`dev` 也含它），
+`tests/http_clients/` 檢查這些寫法與說法。沒有 `--with-http-clients` 時一律 deselect；給了
+旗標卻缺這個 group 的任何一個套件時，pytest 直接報錯（`tests/conftest.py` 從
+`pyproject.toml` 讀 group 的成員）：
+
+```sh
+uv sync
+uv run pytest tests/http_clients --with-http-clients
+```
+
+- 本機伺服器逐位元組送出每個案例的標頭行（例如重複的 Content-Disposition、單行的逗號清單、
+  沒關上的引號、舊式字元集與 UTF-8 的位元組、多行 Content-Type、X-Content-Type-Options、
+  重新導向），各函式庫照使用說明的寫法取回，結果必須等於把送出的標頭行原樣交給本套件的
+  結果。使用說明說「會不同」的傳法（`response.headers` 把重複的行接成一行、不帶
+  `headers_encoding` 的 Latin-1 字串），測試把不同的結果寫成預期值。
+- aiohttp 有 C 與純 Python 兩種 HTTP parser（PyPy 或 `AIOHTTP_NO_EXTENSIONS=1` 時用後者）。
+  測試在同一次執行裡換上兩種 parser 各跑一次；C parser 不存在時失敗，所以要在 CPython 上、
+  用 aiohttp 針對那個 CPython 版本編譯的 wheel 跑。aiohttp 還沒替某個 CPython 版本出 wheel 時，
+  會裝成純 Python 的 wheel，C parser 的測試就會失敗。
+- CI 的 `http-clients` job 在 CPython 3.11 與 3.15 上跑它（見〈Python 支援窗〉）；weekly canary
+  的 `newest-dependencies` 也帶這個旗標，用最新版的函式庫跑。
+
+函式庫新版讓測試失敗時，先看它改了什麼：使用說明的寫法或說法不再成立，就改兩種語言的
+使用說明（以及 README、api-reference 裡的同一件事）和測試；不要只改預期值讓測試通過，
+預期值就是文件的說法。改使用說明裡的函式庫範例或說法時，同一個 commit 也改
+`tests/http_clients/`。
 
 ## 跟進 Chromium
 
@@ -189,8 +227,8 @@ deployment tag 規則只允許 `v*`。
 - `published-package-on-newest-python`：`.github/scripts/pick-canary-python.py` 從
   setup-python 的 versions manifest 挑出這台 runner 可安裝、且為 beta 以上的最新 CPython，
   安裝 PyPI 上已發布的套件並做 smoke test。刻意不測 alpha。
-- `newest-dependencies`：`uv lock --upgrade` 後跑完整測試，提早發現 pytest、Hypothesis 等
-  新版造成的問題。
+- `newest-dependencies`：`uv lock --upgrade` 後帶 `--with-http-clients` 跑完整測試，提早發現
+  pytest、Hypothesis 與 HTTP 函式庫等新版造成的問題。
 - `newest-chromium`：只升級 Playwright，用它附帶的最新 Chromium 跑瀏覽器測試。
 - `chromium-drift`：見〈跟進 Chromium〉。
 
@@ -209,6 +247,9 @@ scheduled workflow 只在 default branch 執行，public repository 60 天沒有
   非 major 更新會自動合併；setup-uv、PyPI 發布 Action、configure／deploy-pages 維持人工。
 - uv（`setup-uv` 的 `version`，用 regex manager 追蹤）與 `uv_build` 合成一組 "uv toolchain"。
 - Playwright 獨立一組，永不自動合併（見〈升級 Playwright〉）。
+- aiohttp、httpx、httpx2、requests、urllib3 合成 "HTTP clients" 一組，不自動合併：
+  `http-clients` job 檢查文件對它們的說法，但新版可能棄用文件叫使用者傳的屬性，或新增
+  更合適的屬性，這兩種情況都不會讓測試失敗（見〈HTTP 函式庫測試〉）。
 - pytest、Hypothesis、ruff、mypy、twine、zensical 合成 "Python development tools" 一組。
 
 ## 文件

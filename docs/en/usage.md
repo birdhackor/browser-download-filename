@@ -3,33 +3,53 @@
 ## Name a download
 
 `suggested_filename` downloads nothing. Make the request with your HTTP library
-as usual, then give the package what the response says: its Content-Disposition
-header and its URL. With a streaming response, both are there before you read
-the body.
+as usual, then give the package the response's headers, all of them, and its
+URL. With a streaming response, both are there before you read the body. With
+httpx2:
+
+```python
+from pathlib import Path
+
+import httpx2
+from browser_download_filename import suggested_filename
+
+with httpx2.stream("GET", url, follow_redirects=True) as response:
+    response.raise_for_status()
+    name = suggested_filename(response.headers.raw, url=str(response.url))
+    with open(Path(download_dir) / name, "wb") as file:
+        for chunk in response.iter_bytes():
+            file.write(chunk)
+```
+
+`response.headers.raw` holds the header lines in bytes, each line on its own.
+httpx2 follows redirects only with `follow_redirects=True`, and `response.url`
+is a URL object, which `str()` turns into the URL. The code is the same for
+httpx, with `httpx2` replaced by `httpx`. For requests, aiohttp and
+`urllib.request`, see [Pass the headers from your HTTP
+library](#pass-the-headers-from-your-http-library).
+
+The headers can also be a dict or a list of `(name, value)` pairs, with values
+in bytes or str:
 
 ```pycon
 >>> from browser_download_filename import parse_content_disposition, suggested_filename
->>> suggested_filename(content_disposition='attachment; filename="Q3 report.pdf"')
+>>> headers = [("Content-Disposition", 'attachment; filename="Q3 report.pdf"')]
+>>> suggested_filename(headers, url="https://example.com/files/report.pdf")
 'Q3 report.pdf'
->>> suggested_filename(
-...     url="https://example.com/files/report.pdf",
-...     content_disposition='attachment; filename="Q3 report.pdf"',
-... )
+>>> suggested_filename(headers)
 'Q3 report.pdf'
->>> suggested_filename(
-...     url="https://example.com/files/report.pdf?id=1", content_disposition="attachment"
-... )
+>>> headers = [("Content-Disposition", "attachment")]
+>>> suggested_filename(headers, url="https://example.com/files/report.pdf?id=1")
 'report.pdf'
->>> suggested_filename(content_disposition="attachment")
+>>> suggested_filename(headers)
 'download'
 ```
 
 Chrome takes the name from the first of these that gives one:
 
-1. `content_disposition`, the Content-Disposition header, or the
-   Content-Disposition lines in `headers` (see [Several Content-Disposition
-   headers](#several-content-disposition-headers)); leave both out when the
-   response has none;
+1. Content-Disposition: the Content-Disposition lines in `headers` (see
+   [Several Content-Disposition headers](#several-content-disposition-headers)),
+   or `content_disposition`, which takes their place when you pass it;
 2. `download_attribute`, the value of an `<a download>` attribute (see
    [The download attribute](#the-download-attribute));
 3. `url`, the URL: the last segment of its path, percent-decoded, without the
@@ -37,15 +57,29 @@ Chrome takes the name from the first of these that gives one:
 4. `default_name`, which is `download` unless you pass another (see
    [The default name](#the-default-name)).
 
-`url` is the final URL of the response, after redirects. It only matters
-when the header gives no name, for example when the response has no
-Content-Disposition, when the header has neither `filename` nor `filename*`,
-or when the name in it cannot be decoded (see
+`url` is the final URL of the response, after redirects. It gives the name
+only when Content-Disposition and `download_attribute` give none, for example
+when the response has no Content-Disposition, when the header has neither
+`filename` nor `filename*`, or when the name in it cannot be decoded (see
 [Decode legacy charsets](#decode-legacy-charsets)). Leave it out when you have
-no URL, and Chrome goes on to `default_name` instead. When the name comes from
-a URL with a query string, the response's MIME type may also replace its
-extension (see
+no URL, and Chrome goes on to `default_name` instead.
+
+The URL can also change the extension of a name that does not come from
+Content-Disposition. When the name comes from a URL with a query string, the
+response's MIME type may replace its extension (see
 [Add an extension from the Content-Type](#add-an-extension-from-the-content-type)).
+And the URL's scheme decides whether Chrome may sniff the body for a MIME
+type: only `http:`, `https:`, `file:` and `filesystem:` URLs are sniffed, and
+without a `url` the package assumes one of them (see
+[The MIME type](behavior.md#the-mime-type)). Without sniffing, a response that
+has no Content-Type is `text/plain`. Here `[]` is a response without headers:
+
+```pycon
+>>> suggested_filename([], download_attribute="saved", url="https://example.com/x")
+'saved'
+>>> suggested_filename([], download_attribute="saved", url="ftp://example.com/x")
+'saved.txt'
+```
 
 The result is always one non-empty file name: it never contains `/` or `\`,
 control characters or other characters that file systems reject, and it never
@@ -63,72 +97,62 @@ on Linux, for example, takes at most 255 bytes per file name, which is about 85
 Chinese characters in UTF-8), and a file with that name may already exist
 (Chrome numbers the new one: `report (1).pdf`).
 
-## Pass the header from your HTTP library
+## Pass the headers from your HTTP library
 
-Chromium reads the header as bytes. Python HTTP libraries decode headers to str
-first, and each does it in its own way, so give the package the bytes when you
-can.
+Chromium reads the header lines of a response as bytes, each line on its own.
+Python HTTP libraries decode headers to str, and some join the lines of a
+header that comes more than once. Each library here has a way to pass the
+headers that gives the same name as the lines on the wire:
 
-requests, urllib3, `urllib.request` and `http.client` decode every header as
-Latin-1; encoding the str back to Latin-1 gives the bytes exactly:
+| Library | `headers` | `headers_encoding` |
+| --- | --- | --- |
+| httpx2, httpx | `response.headers.raw` | none: the lines are bytes |
+| aiohttp | `response.raw_headers` | none: the lines are bytes |
+| requests | `response.raw.headers` | `"latin-1"` |
+| `urllib.request` | `response.headers` | `"latin-1"` |
 
-```python
-import requests
-from browser_download_filename import suggested_filename
-
-response = requests.get(url)
-header = response.headers.get("Content-Disposition")
-name = suggested_filename(
-    url=response.url,
-    content_disposition=header.encode("latin-1") if header is not None else None,
-)
-```
-
-httpx and httpx2 decode all headers of a response with one codec and tell you
-which. They do not follow redirects unless asked, and `response.url` is a URL
-object. With a streaming response, name the file before you read the body. The
-code is the same for httpx2, with `httpx` replaced by `httpx2`:
-
-```python
-from pathlib import Path
-
-import httpx
-from browser_download_filename import suggested_filename
-
-with httpx.stream("GET", url, follow_redirects=True) as response:
-    response.raise_for_status()
-    header = response.headers.get("Content-Disposition")
-    name = suggested_filename(
-        url=str(response.url),
-        content_disposition=(
-            header.encode(response.headers.encoding) if header is not None else None
-        ),
-    )
-    with open(Path(download_dir) / name, "wb") as file:
-        for chunk in response.iter_bytes():
-            file.write(chunk)
-```
-
-aiohttp decodes headers as UTF-8 and keeps the bytes it cannot decode as
-surrogate escapes, which the package turns back into those bytes, so its str
-can be passed as it is:
+For httpx2 and httpx, see [Name a download](#name-a-download). aiohttp keeps
+every line in bytes in `response.raw_headers`, and its `response.url` is a URL
+object too:
 
 ```python
 async with session.get(url) as response:
-    name = suggested_filename(
-        url=str(response.url),
-        content_disposition=response.headers.get("Content-Disposition"),
-    )
+    name = suggested_filename(response.raw_headers, url=str(response.url))
 ```
 
-A str works in the other cases too, as long as the header is ASCII or UTF-8,
-which is almost always the case: a str of Latin-1 characters whose Latin-1
-bytes are valid UTF-8 is read as those bytes, and any other str is encoded as
-UTF-8. Only a header with bytes in a legacy charset, such as `caf\xe9.txt` in
-Windows-1252, comes out differently from a str, because the str cannot tell
-those bytes apart from text. Pass the codec your HTTP library decoded the
-headers with as `headers_encoding`, and a str gives back the bytes exactly (see
-[Inputs as str](api-reference.md#inputs-as-str)).
+requests decodes headers as Latin-1, and its `response.headers` joins the
+lines of a header into one. The urllib3 response under it, `response.raw`,
+keeps every line, and `headers_encoding="latin-1"` turns the strs back into the
+bytes exactly:
+
+```python
+with requests.get(url, stream=True) as response:
+    name = suggested_filename(response.raw.headers, url=response.url, headers_encoding="latin-1")
+```
+
+`urllib.request` decodes headers as Latin-1 too, and its `response.headers`
+keeps every line:
+
+```python
+with urllib.request.urlopen(url) as response:
+    name = suggested_filename(response.headers, url=response.url, headers_encoding="latin-1")
+```
+
+### Joined lines and guessed bytes
+
+The `response.headers` of requests, httpx and httpx2 join the lines of a header
+into one, with `, `. Passed with `headers_encoding` (`"latin-1"` for requests,
+`response.headers.encoding` for httpx and httpx2), they give the same result,
+unless the first Content-Disposition line leaves a quote open and another one
+follows. In the joined line, that quote runs on into the next line, so the name
+can take in what follows, and `blocks_download` can be `False` for a response
+that Chrome refuses (see [Reading
+Content-Disposition](behavior.md#reading-content-disposition)).
+
+Without `headers_encoding`, the package guesses the bytes behind each str (see
+[Inputs as str](api-reference.md#inputs-as-str)). The guess can be wrong for
+bytes in a legacy charset, such as `caf\xe9.txt` in windows-1252, that a
+library decoded as Latin-1, and the name can then differ.
 
 ### Several Content-Disposition headers
 
@@ -140,12 +164,13 @@ differs from the first, Chrome refuses the whole response
 single header that has a comma outside quotes, such as
 `attachment; filename=a,b.txt`.
 
-The package sees every value only when you give it the whole headers. For one
-name, requests, httpx and httpx2 return repeated headers joined with `, `, but
-`urllib.request` and aiohttp return only the first one. Pass `response.headers`
-to `suggested_filename`, as its first argument, or to
-`parse_content_disposition`, whose `blocks_download` tells you whether Chrome
-refuses the response:
+The package sees every value when it gets every line, as in [Pass the
+headers from your HTTP library](#pass-the-headers-from-your-http-library). A
+header looked up by name is not the same: `urllib.request` and aiohttp give
+only its first line, and requests, httpx and httpx2 join its lines into one
+(see [Joined lines and guessed bytes](#joined-lines-and-guessed-bytes)). Pass
+the headers to `suggested_filename`, or to `parse_content_disposition`, whose
+`blocks_download` tells you whether Chrome refuses the response:
 
 ```pycon
 >>> headers = [
@@ -379,7 +404,7 @@ and `attachment` count as `attachment`, as they do in Chromium.
 | --- | --- |
 | `pyrfc6266.parse_filename(header)` | `parse_content_disposition(header).filename` |
 | `email.message.Message.get_filename()` | `parse_content_disposition(header).filename` |
-| Your own URL fallback and file name cleaning | `suggested_filename(url=url, content_disposition=header)` |
+| Your own URL fallback and file name cleaning | `suggested_filename(headers, url=url)` |
 | Your own cleaning of a name from elsewhere | `sanitize_filename(name)` |
 
 `parse_content_disposition` never raises on a malformed header and returns

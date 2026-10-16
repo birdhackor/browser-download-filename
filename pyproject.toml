@@ -54,7 +54,24 @@ lint = ["ruff>=0.17.1", "mypy>=2.4.0"]
 # dev so that mypy checks the browser tests against Playwright's types; the
 # browsers themselves come from `playwright install`.
 browser = ["playwright==1.64.0"]
-dev = [{ include-group = "test" }, { include-group = "lint" }, { include-group = "browser" }]
+# The HTTP libraries that the usage documentation shows or describes (urllib3
+# is the response under requests' response.raw). With --with-http-clients,
+# tests/http_clients checks what the documentation says about them, and
+# tests/conftest.py refuses the flag unless all of them are installed. It is
+# part of dev so that mypy checks those tests against the libraries' types.
+http-clients = [
+    "aiohttp>=3.14.5",
+    "httpx>=0.28.1",
+    "httpx2>=2.13.1",
+    "requests>=2.34.2",
+    "urllib3>=2.8.0",
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+    { include-group = "browser" },
+    { include-group = "http-clients" },
+]
 
 [tool.uv]
 default-groups = ["dev"]

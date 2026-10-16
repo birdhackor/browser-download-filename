@@ -33,6 +33,15 @@ uv run pytest tests/browser --with-browser chromium --browser-report report.json
 
 `--with-browser` 接受 `chromium`、`firefox` 或 `webkit`，可以重複指定；`--browser-report` 還會在 JSON 檔旁邊寫一份 Markdown 摘要。
 
+## HTTP 函式庫 {#the-http-libraries}
+
+[使用方式](usage.md#pass-the-headers-from-your-http-library)示範了怎麼從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭。`tests/http_clients/` 裡的測試從本機的 HTTP 伺服器逐位元組送出標頭行，包括重複的 Content-Disposition 行、沒關上的引號、舊式字元集和 UTF-8 的位元組、多行 Content-Type 以及 X-Content-Type-Options。測試用各個函式庫取回它們，再照使用方式的寫法交給本套件，結果必須跟原樣傳入送出的標頭行時相同。使用方式說另一種傳法會得到不同檔名的地方，測試也檢查那個檔名。文件對這些函式庫本身的說法同樣有測試檢查，aiohttp 的兩種 HTTP parser 也都會跑。CI 在 CPython 3.11 和 3.15 上執行這些測試，每週的 canary 則用最新版的函式庫執行：
+
+```console
+uv sync
+uv run pytest tests/http_clients --with-http-clients
+```
+
 ## 性質測試 {#properties}
 
 用 Hypothesis 產生輸入，檢查：
