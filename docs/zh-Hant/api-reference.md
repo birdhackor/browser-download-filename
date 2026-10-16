@@ -21,7 +21,7 @@ Chromium 替一次下載建議的檔名（`net::GetSuggestedFilename`），也�
 
 | 參數 | 意義 |
 | --- | --- |
-| `url` | 回應的最終網址（跟隨重新導向之後）。沒有網址時傳 `None`。 |
+| `url` | 回應的最終網址（跟隨重新導向之後）；沒有網址時傳 `None`。只在 Content-Disposition 和 `suggested_name` 都沒有提供檔名時使用：取路徑的最後一段（`about:` 和 `data:` 網址取不到）；取不到而且 `default_name` 是空字串時，改用主機名稱。 |
 | `content_disposition` | Content-Disposition 標頭，可以是位元組，或 HTTP 函式庫解碼出的字串；回應沒有這個標頭時傳 `None`。只使用它以逗號分隔的第一個值。 |
 | `suggested_name` | `<a download>` 屬性的值。Content-Disposition 沒有提供檔名時使用。 |
 | `mime_type` | 回應的 Content-Type，參數會被忽略。檔名不是取自 Content-Disposition 時，用它補上或修正副檔名。 |

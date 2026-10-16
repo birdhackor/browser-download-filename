@@ -2,19 +2,42 @@
 
 ## Name a download
 
+`suggested_filename` downloads nothing. Make the request with your HTTP library
+as usual, then give the package what the response says: its Content-Disposition
+header and its URL. With a streaming response, both are there before you read
+the body.
+
 ```pycon
 >>> from browser_download_filename import parse_content_disposition, suggested_filename
->>> suggested_filename("https://example.com/files/report.pdf")
-'report.pdf'
+>>> suggested_filename(None, 'attachment; filename="Q3 report.pdf"')
+'Q3 report.pdf'
 >>> suggested_filename("https://example.com/files/report.pdf", 'attachment; filename="Q3 report.pdf"')
 'Q3 report.pdf'
->>> suggested_filename("https://example.com/")
+>>> suggested_filename("https://example.com/files/report.pdf?id=1", "attachment")
+'report.pdf'
+>>> suggested_filename(None, "attachment")
 'download'
 ```
 
-The first argument is the final URL of the response, after redirects. The
-second is the Content-Disposition header; leave it out or pass `None` when the
-response has none.
+Chrome takes the name from the first of these that gives one:
+
+1. the Content-Disposition header, the second argument; leave it out or pass
+   `None` when the response has none;
+2. `suggested_name`, the value of an `<a download>` attribute (see
+   [The download attribute](#the-download-attribute));
+3. the URL, the first argument: the last segment of its path, percent-decoded,
+   without the query string (`about:` and `data:` URLs give none);
+4. `default_name`, which is `download` unless you pass another (see
+   [The default name](#the-default-name)).
+
+The URL is the final URL of the response, after redirects. It only matters
+when the header gives no name, for example when the response has no
+Content-Disposition, when the header has neither `filename` nor `filename*`,
+or when the name in it cannot be decoded (see
+[Decode legacy charsets](#decode-legacy-charsets)). Pass `None` when you have
+no URL, and Chrome goes on to `default_name` instead. When the name comes from
+a URL with a query string, `mime_type` may also replace its extension (see
+[Add an extension from the Content-Type](#add-an-extension-from-the-content-type)).
 
 The result is always one non-empty file name: it never contains `/` or `\`,
 control characters or other characters that file systems reject, and it never
@@ -51,19 +74,27 @@ name = suggested_filename(
 )
 ```
 
-httpx decodes all headers of a response with one codec and tells you which. It
-also does not follow redirects unless asked, and its `response.url` is a URL
-object:
+httpx and httpx2 decode all headers of a response with one codec and tell you
+which. They do not follow redirects unless asked, and `response.url` is a URL
+object. With a streaming response, name the file before you read the body. The
+code is the same for httpx2, with `httpx` replaced by `httpx2`:
 
 ```python
-import httpx
+from pathlib import Path
 
-response = httpx.get(url, follow_redirects=True)
-header = response.headers.get("Content-Disposition")
-name = suggested_filename(
-    str(response.url),
-    header.encode(response.headers.encoding) if header is not None else None,
-)
+import httpx
+from browser_download_filename import suggested_filename
+
+with httpx.stream("GET", url, follow_redirects=True) as response:
+    response.raise_for_status()
+    header = response.headers.get("Content-Disposition")
+    name = suggested_filename(
+        str(response.url),
+        header.encode(response.headers.encoding) if header is not None else None,
+    )
+    with open(Path(download_dir) / name, "wb") as file:
+        for chunk in response.iter_bytes():
+            file.write(chunk)
 ```
 
 aiohttp decodes headers as UTF-8 and keeps the bytes it cannot decode as
@@ -87,10 +118,10 @@ those bytes apart from text.
 
 ### Several Content-Disposition headers
 
-requests and httpx join repeated headers with `, `, and `urllib.request` and
-aiohttp return the first one. Chromium splits the header on commas outside
-quotes and uses the first value, and the package does too. If the values
-differ, Chrome refuses the whole response
+requests, httpx and httpx2 join repeated headers with `, `, and
+`urllib.request` and aiohttp return the first one. Chromium splits the header
+on commas outside quotes and uses the first value, and the package does too.
+If the values differ, Chrome refuses the whole response
 (`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`) and nothing is
 downloaded. That also happens with a single header that has a comma outside
 quotes, such as `attachment; filename=a,b.txt`. The package cannot see what

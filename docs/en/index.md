@@ -21,7 +21,8 @@ python -m pip install browser-download-filename
 
 The result is what Chrome reports to DevTools and Playwright as the download's
 suggested file name, and a safe file name to save under. See
-[Usage](usage.md) for passing headers from requests, httpx, aiohttp and urllib.
+[Usage](usage.md) for passing headers from requests, httpx, httpx2, aiohttp and
+urllib.
 
 ## Why
 

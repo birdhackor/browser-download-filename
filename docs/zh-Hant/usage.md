@@ -2,17 +2,28 @@
 
 ## 替下載命名 {#name-a-download}
 
+`suggested_filename` 不會下載任何東西。照常用你的 HTTP 函式庫發出請求，再把回應提供的資訊交給它：Content-Disposition 標頭和回應的網址。使用串流回應時，讀取回應內容之前就拿得到這兩項。
+
 ```pycon
 >>> from browser_download_filename import parse_content_disposition, suggested_filename
->>> suggested_filename("https://example.com/files/report.pdf")
-'report.pdf'
+>>> suggested_filename(None, 'attachment; filename="Q3 report.pdf"')
+'Q3 report.pdf'
 >>> suggested_filename("https://example.com/files/report.pdf", 'attachment; filename="Q3 report.pdf"')
 'Q3 report.pdf'
->>> suggested_filename("https://example.com/")
+>>> suggested_filename("https://example.com/files/report.pdf?id=1", "attachment")
+'report.pdf'
+>>> suggested_filename(None, "attachment")
 'download'
 ```
 
-第一個參數是回應的最終網址（跟隨重新導向之後的網址）。第二個參數是 Content-Disposition 標頭；回應沒有這個標頭時，省略它或傳入 `None`。
+Chrome 依下列順序，採用第一個提供檔名的來源：
+
+1. Content-Disposition 標頭，也就是第二個參數；回應沒有這個標頭時，省略它或傳入 `None`；
+2. `suggested_name`，也就是 `<a download>` 屬性的值（見 [download 屬性](#the-download-attribute)）；
+3. 網址，也就是第一個參數：取路徑的最後一段，解開百分比編碼，不含查詢字串（`about:` 和 `data:` 網址取不到檔名）；
+4. `default_name`，沒有另外指定時是 `download`（見 [預設檔名](#the-default-name)）。
+
+網址是回應的最終網址（跟隨重新導向之後的網址）。只有標頭沒有提供檔名時才會用到它，例如回應沒有 Content-Disposition、標頭裡既沒有 `filename` 也沒有 `filename*`，或是裡面的檔名無法解碼（見 [解碼舊式字元集](#decode-legacy-charsets)）。沒有網址時傳入 `None`，這時會跳過網址，接著用 `default_name`。檔名取自帶查詢字串的網址時，`mime_type` 也可能換掉它的副檔名（見 [依 Content-Type 補副檔名](#add-an-extension-from-the-content-type)）。
 
 回傳值一定是一個非空的檔名：不含 `/`、`\`、控制字元或其他檔案系統不接受的字元，開頭和結尾也不會是 `.` 或空白。把它放進你要的目錄即可：
 
@@ -42,17 +53,24 @@ name = suggested_filename(
 )
 ```
 
-httpx 用同一種編碼解碼一個回應的所有標頭，並且告訴你是哪一種。它預設不跟隨重新導向，`response.url` 也是 URL 物件而不是字串：
+httpx 和 httpx2 都用同一種編碼解碼一個回應的所有標頭，並且告訴你是哪一種。它們預設不跟隨重新導向，`response.url` 也是 URL 物件而不是字串。使用串流回應時，先決定檔名，再讀取回應內容。httpx2 的寫法相同，只要把 `httpx` 換成 `httpx2`：
 
 ```python
-import httpx
+from pathlib import Path
 
-response = httpx.get(url, follow_redirects=True)
-header = response.headers.get("Content-Disposition")
-name = suggested_filename(
-    str(response.url),
-    header.encode(response.headers.encoding) if header is not None else None,
-)
+import httpx
+from browser_download_filename import suggested_filename
+
+with httpx.stream("GET", url, follow_redirects=True) as response:
+    response.raise_for_status()
+    header = response.headers.get("Content-Disposition")
+    name = suggested_filename(
+        str(response.url),
+        header.encode(response.headers.encoding) if header is not None else None,
+    )
+    with open(Path(download_dir) / name, "wb") as file:
+        for chunk in response.iter_bytes():
+            file.write(chunk)
 ```
 
 aiohttp 用 UTF-8 解碼標頭，解不了的位元組以 surrogate escape 保留；本套件會把它們轉回原本的位元組，所以 aiohttp 的字串可以直接傳入：
@@ -69,7 +87,7 @@ async with session.get(url) as response:
 
 ### 有多個 Content-Disposition 標頭時 {#several-content-disposition-headers}
 
-requests 和 httpx 會用 `, ` 把重複的標頭接起來，`urllib.request` 和 aiohttp 則只回傳第一個。Chromium 會在引號外的逗號處切開標頭、只用第一個值，本套件也一樣。如果這些值彼此不同，Chrome 會拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`），什麼都不下載。只有一個標頭、但引號外有逗號時也會這樣，例如 `attachment; filename=a,b.txt`。本套件看不到 HTTP 函式庫丟掉的部分，而且一定會回傳檔名：這個例子是 `a`。
+requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.request` 和 aiohttp 則只回傳第一個。Chromium 會在引號外的逗號處切開標頭、只用第一個值，本套件也一樣。如果這些值彼此不同，Chrome 會拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`），什麼都不下載。只有一個標頭、但引號外有逗號時也會這樣，例如 `attachment; filename=a,b.txt`。本套件看不到 HTTP 函式庫丟掉的部分，而且一定會回傳檔名：這個例子是 `a`。
 
 ## 依 Content-Type 補副檔名 {#add-an-extension-from-the-content-type}
 

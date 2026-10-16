@@ -48,15 +48,20 @@ pip install browser-download-filename      # or: uv add browser-download-filenam
 >>> header = b"attachment; filename=report.pdf; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf"
 >>> suggested_filename("https://example.com/download?id=42", header)
 '報告.pdf'
+>>> suggested_filename(None, header)
+'報告.pdf'
 >>> suggested_filename("https://example.com/files/r%C3%A9sum%C3%A9.pdf")
 'résumé.pdf'
 >>> parse_content_disposition('attachment; filename="a;b;c.txt";')
 ContentDisposition(type='attachment', filename='a;b;c.txt')
 ```
 
-`suggested_filename` takes the final URL of the response (after redirects) and
-the Content-Disposition header, and returns the name Chrome reports to DevTools
-and Playwright as the download's suggested file name:
+`suggested_filename` downloads nothing: it takes the final URL of a response
+(after redirects) and its Content-Disposition header, and returns the name
+Chrome reports to DevTools and Playwright as the download's suggested file
+name. The URL is optional and only matters when the header gives no name:
+Chrome then takes the last segment of its path. Pass `None` if you have no
+URL. With requests:
 
 ```python
 import requests
@@ -74,8 +79,8 @@ name = suggested_filename(
 ## Documentation
 
 Full documentation (English / 正體中文), including usage with requests, httpx,
-aiohttp and urllib, the options, how Chrome, Firefox and Safari differ, how the
-package is checked against Chromium, the API reference and a changelog:
+httpx2, aiohttp and urllib, the options, how Chrome, Firefox and Safari differ,
+how the package is checked against Chromium, the API reference and a changelog:
 **https://birdhackor.github.io/browser-download-filename/**
 
 ## License

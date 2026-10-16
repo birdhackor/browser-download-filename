@@ -23,7 +23,7 @@ which is the name Chrome reports to DevTools and Playwright. It is never empty.
 
 | Parameter | Meaning |
 | --- | --- |
-| `url` | The final URL of the response, after redirects. `None` for no URL. |
+| `url` | The final URL of the response, after redirects; `None` for no URL. Used only when Content-Disposition and `suggested_name` give no name: the last segment of its path (none for `about:` and `data:` URLs), else its host if `default_name` is empty. |
 | `content_disposition` | The Content-Disposition header, as bytes or as the str an HTTP library produced; `None` when the response has none. Only its first comma-separated value is used. |
 | `suggested_name` | The value of an `<a download>` attribute. Used when Content-Disposition gives no name. |
 | `mime_type` | The response's Content-Type; parameters are ignored. It adds or corrects an extension when the name does not come from Content-Disposition. |
