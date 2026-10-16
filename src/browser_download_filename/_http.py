@@ -45,9 +45,13 @@ def first_comma_separated_value(data: bytes) -> bytes:
     return next(_split(data, _COMMA_VALUE, keep_empty=True))
 
 
-def comma_separated_values(data: bytes) -> list[bytes]:
-    """All values, as HttpResponseHeaders stores a coalescable header."""
-    return list(_split(data, _COMMA_VALUE, keep_empty=True))
+def comma_separated_values(data: bytes, *, ignore_empty: bool = False) -> list[bytes]:
+    """All values, as HttpResponseHeaders stores a coalescable header.
+
+    With ``ignore_empty``, values that are empty once trimmed are left out,
+    as HttpUtil::ValuesIterator does by default.
+    """
+    return list(_split(data, _COMMA_VALUE, keep_empty=not ignore_empty))
 
 
 class Parameter(NamedTuple):

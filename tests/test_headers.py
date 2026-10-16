@@ -206,13 +206,6 @@ def test_content_disposition_argument_replaces_the_headers() -> None:
     )
 
 
-def test_content_type_comes_only_from_the_argument() -> None:
-    page = "https://example.com/page"
-    headers = [("Content-Type", "text/html")]
-    assert suggested_filename(headers, url=page) == "page"
-    assert suggested_filename(headers, url=page, content_type="application/pdf") == "page.pdf"
-
-
 @pytest.mark.parametrize(
     "headers",
     ["attachment", "https://example.com/a.pdf", A, bytearray(A), memoryview(A)],

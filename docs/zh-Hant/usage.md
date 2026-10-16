@@ -28,7 +28,7 @@ Chrome 依下列順序，採用第一個提供檔名的來源：
 3. `url`，也就是網址：取路徑的最後一段，解開百分比編碼，不含查詢字串（`about:` 和 `data:` 網址取不到檔名）；
 4. `default_name`，沒有另外指定時是 `download`（見 [預設檔名](#the-default-name)）。
 
-`url` 是回應的最終網址（跟隨重新導向之後的網址）。只有標頭沒有提供檔名時才會用到它，例如回應沒有 Content-Disposition、標頭裡既沒有 `filename` 也沒有 `filename*`，或是裡面的檔名無法解碼（見 [解碼舊式字元集](#decode-legacy-charsets)）。沒有網址時省略它，這時會跳過網址，接著用 `default_name`。檔名取自帶查詢字串的網址時，`content_type` 也可能換掉它的副檔名（見 [依 Content-Type 補副檔名](#add-an-extension-from-the-content-type)）。
+`url` 是回應的最終網址（跟隨重新導向之後的網址）。只有標頭沒有提供檔名時才會用到它，例如回應沒有 Content-Disposition、標頭裡既沒有 `filename` 也沒有 `filename*`，或是裡面的檔名無法解碼（見 [解碼舊式字元集](#decode-legacy-charsets)）。沒有網址時省略它，這時會跳過網址，接著用 `default_name`。檔名取自帶查詢字串的網址時，回應的 MIME 類型也可能換掉它的副檔名（見 [依 Content-Type 補副檔名](#add-an-extension-from-the-content-type)）。
 
 回傳值一定是一個非空的檔名：不含 `/`、`\`、控制字元或其他檔案系統不接受的字元，開頭和結尾也不會是 `.` 或空白。把它放進你要的目錄即可：
 
@@ -115,19 +115,19 @@ Chrome 拒絕一個回應時，指向它的一般連結什麼都不會下載：C
 
 ## 依 Content-Type 補副檔名 {#add-an-extension-from-the-content-type}
 
-把回應的 Content-Type（字串或位元組皆可）傳給 `content_type`，就會套用 Chrome 的副檔名規則：
+檔名不是取自 Content-Disposition 時，Chrome 會加上回應的 MIME 類型的副檔名，或修正檔名原有的副檔名。把回應的標頭交給本套件，它就照 Chrome 的方式從中讀出 MIME 類型：
 
 ```pycon
->>> suggested_filename(url="https://example.com/report", content_type="application/pdf")
+>>> headers = [("Content-Type", "application/pdf")]
+>>> suggested_filename(headers, url="https://example.com/report")
 'report.pdf'
->>> suggested_filename(url="https://example.com/get.php?id=1", content_type="application/pdf")
+>>> suggested_filename(headers, url="https://example.com/get.php?id=1")
 'get.pdf'
->>> suggested_filename(url="https://example.com/get.php", content_type="application/pdf")
+>>> suggested_filename(headers, url="https://example.com/get.php")
 'get.php'
 >>> suggested_filename(
+...     [*headers, ("Content-Disposition", 'attachment; filename="report"')],
 ...     url="https://example.com/x",
-...     content_disposition='attachment; filename="report"',
-...     content_type="application/pdf",
 ... )
 'report'
 ```
@@ -136,8 +136,25 @@ Chrome 拒絕一個回應時，指向它的一般連結什麼都不會下載：C
 - 網址帶查詢字串時，Chrome 認為檔案是由程式產生的，所以取自這種網址的檔名，副檔名會被換掉，除非它本來就是該 MIME 類型的副檔名之一。
 - 取自 Content-Disposition 的檔名，副檔名維持原樣；原本沒有就不會加上。
 - `; charset=utf-8` 這類參數會被忽略；`application/octet-stream` 和 Chromium 不知道副檔名的 MIME 類型也一樣。
+- RSS 和 Atom feed 會得到 `.txt`；沒有 Content-Type、但送出 `X-Content-Type-Options: nosniff` 的回應也是。
 
-如果伺服器沒有送出 `X-Content-Type-Options: nosniff`，Chrome 可能會檢查內容、改用跟標頭不同的 MIME 類型（MIME sniffing）；請傳入 Chrome 會用的那一個。
+本套件照 Chrome 網路層的方式讀取每一行 Content-Type，以及 X-Content-Type-Options（見 [MIME 類型](behavior.md#the-mime-type)）。要在標頭之外另外給 Content-Type，或根本沒有標頭時，把它的原始值傳給 `content_type`，可以是位元組，或 HTTP 函式庫解碼出的字串。它會取代 `headers` 裡所有的 Content-Type 行；預設的 `None` 表示沿用那些行。空字串代表一個空的 Content-Type，不是沒有傳。X-Content-Type-Options 只從 `headers` 讀取；`headers` 和 `content_type` 都沒有時，不使用任何 MIME 類型：
+
+```pycon
+>>> headers = [("Content-Type", "application/pdf"), ("X-Content-Type-Options", "nosniff")]
+>>> suggested_filename(headers, url="https://example.com/report", content_type="text/html")
+'report.html'
+>>> suggested_filename(headers, url="https://example.com/report", content_type="")
+'report.txt'
+>>> suggested_filename(url="https://example.com/report", content_type="application/pdf")
+'report.pdf'
+```
+
+### Chrome 檢查內容時 {#when-chrome-sniffs-the-body}
+
+除非回應送出 `X-Content-Type-Options: nosniff`，否則 Content-Type 沒有給或提供的資訊太少時（`text/plain`、`application/octet-stream`、XML、Microsoft Office 類型和未知的類型），Chrome 會檢查內容的開頭（MIME sniffing），可能改用跟標頭不同的 MIME 類型。本套件看不到內容，所以用標頭宣告的類型，得到的檔名可能跟 Chrome 和 Playwright 回報的不同：沒有 Content-Type、內容是 HTML 的回應，在 Chrome 是 `page.html`，在本套件則是 `page`。要精確預測檔名，就讓實際的回應送出 `X-Content-Type-Options: nosniff`、改用 Chrome 不檢查內容的類型，或在 Content-Disposition 裡給出檔名。
+
+這涵蓋的是 Chrome 經由網路載入的下載。其他載入回應的方式，例如 Playwright 的 `route.fulfill`，以及 `blob:`、`data:`、`file:` 網址，都沒有模擬；它們可能得到不同的 MIME 類型。
 
 ## 解碼舊式字元集 {#decode-legacy-charsets}
 

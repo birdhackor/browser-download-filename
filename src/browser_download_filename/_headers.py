@@ -33,6 +33,8 @@ HeadersLike: TypeAlias = SupportsHeaderItems | Iterable[tuple[str | bytes, Heade
 
 #: Header names as the lines store them, ASCII-lowercased.
 CONTENT_DISPOSITION = b"content-disposition"
+CONTENT_TYPE = b"content-type"
+X_CONTENT_TYPE_OPTIONS = b"x-content-type-options"
 
 HEADERS_SHAPE = "a mapping or an iterable of (name, value) pairs"
 

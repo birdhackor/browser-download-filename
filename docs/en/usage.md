@@ -43,7 +43,8 @@ Content-Disposition, when the header has neither `filename` nor `filename*`,
 or when the name in it cannot be decoded (see
 [Decode legacy charsets](#decode-legacy-charsets)). Leave it out when you have
 no URL, and Chrome goes on to `default_name` instead. When the name comes from
-a URL with a query string, `content_type` may also replace its extension (see
+a URL with a query string, the response's MIME type may also replace its
+extension (see
 [Add an extension from the Content-Type](#add-an-extension-from-the-content-type)).
 
 The result is always one non-empty file name: it never contains `/` or `\`,
@@ -168,20 +169,22 @@ first value all the same, `a.pdf` above.
 
 ## Add an extension from the Content-Type
 
-Pass the response's Content-Type, as str or bytes, as `content_type` to get
-Chrome's extension rules:
+When the name does not come from Content-Disposition, Chrome adds the
+extension of the response's MIME type, or corrects the extension the name
+has. Give the package the response's headers, and it reads the MIME type from
+them as Chrome does:
 
 ```pycon
->>> suggested_filename(url="https://example.com/report", content_type="application/pdf")
+>>> headers = [("Content-Type", "application/pdf")]
+>>> suggested_filename(headers, url="https://example.com/report")
 'report.pdf'
->>> suggested_filename(url="https://example.com/get.php?id=1", content_type="application/pdf")
+>>> suggested_filename(headers, url="https://example.com/get.php?id=1")
 'get.pdf'
->>> suggested_filename(url="https://example.com/get.php", content_type="application/pdf")
+>>> suggested_filename(headers, url="https://example.com/get.php")
 'get.php'
 >>> suggested_filename(
+...     [*headers, ("Content-Disposition", 'attachment; filename="report"')],
 ...     url="https://example.com/x",
-...     content_disposition='attachment; filename="report"',
-...     content_type="application/pdf",
 ... )
 'report'
 ```
@@ -193,10 +196,44 @@ Chrome's extension rules:
   lack of one.
 - Parameters such as `; charset=utf-8` are ignored, and so are
   `application/octet-stream` and MIME types that Chromium has no extension for.
+- RSS and Atom feeds get `.txt`, and so does a response that has no
+  Content-Type and sends `X-Content-Type-Options: nosniff`.
 
-If the server does not send `X-Content-Type-Options: nosniff`, Chrome may sniff
-the content and use another MIME type than the header says; pass the one Chrome
-would use.
+The package reads every Content-Type line, and X-Content-Type-Options, the way
+Chrome's network stack does (see [The MIME type](behavior.md#the-mime-type)).
+To give the Content-Type apart from the headers, or without them, pass its raw
+value as `content_type`, as bytes or as the str your HTTP library produced. It
+takes the place of every Content-Type line in `headers`; `None`, the default,
+keeps them. An empty string is an empty Content-Type, not a missing one.
+X-Content-Type-Options is read only from `headers`, and with neither `headers`
+nor `content_type` no MIME type is used:
+
+```pycon
+>>> headers = [("Content-Type", "application/pdf"), ("X-Content-Type-Options", "nosniff")]
+>>> suggested_filename(headers, url="https://example.com/report", content_type="text/html")
+'report.html'
+>>> suggested_filename(headers, url="https://example.com/report", content_type="")
+'report.txt'
+>>> suggested_filename(url="https://example.com/report", content_type="application/pdf")
+'report.pdf'
+```
+
+### When Chrome sniffs the body
+
+Unless the response sends `X-Content-Type-Options: nosniff`, Chrome looks at
+the start of the body when the Content-Type is missing or says little:
+`text/plain`, `application/octet-stream`, XML, Microsoft Office types and
+unknown ones. It may then use another MIME type than the headers give. The
+package never sees the body, so it uses the type the headers declare, and its
+name can differ from the one Chrome and Playwright report: a response with no
+Content-Type that holds HTML is `page.html` to Chrome, but `page` here. To
+predict the name exactly, have the actual response send
+`X-Content-Type-Options: nosniff`, use a type that Chrome does not sniff, or
+give the name in Content-Disposition.
+
+This covers downloads that Chrome loads over the network. Other ways of
+loading a response, such as Playwright's `route.fulfill`, and `blob:`, `data:`
+and `file:` URLs, are not modeled; they can end up with another MIME type.
 
 ## Decode legacy charsets
 

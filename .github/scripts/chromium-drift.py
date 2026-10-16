@@ -24,10 +24,12 @@ HISTORY = "https://github.com/chromium/chromium/commits/main"
 TRACKED = (
     "net/http/http_content_disposition.cc",
     "net/http/http_util.cc",
+    "net/http/http_response_headers.cc",
     "net/base/filename_util.cc",
     "net/base/filename_util_internal.cc",
     "net/base/filename_util_icu.cc",
     "net/base/mime_util.cc",
+    "net/base/mime_sniffer.cc",
     "net/base/net_string_util_icu.cc",
     "base/i18n/file_util_icu.cc",
     "base/files/file_path.cc",
@@ -35,6 +37,7 @@ TRACKED = (
     "base/strings/escape.cc",
     "base/strings/string_tokenizer.h",
     "url/third_party/mozilla/url_parse.cc",
+    "services/network/url_loader.cc",
     "components/download/internal/common/download_utils.cc",
     "content/browser/devtools/protocol/browser_handler.cc",
 )

@@ -214,8 +214,8 @@ def test_content_type_adds_missing_extension() -> None:
         (b"application/pdf", "report.pdf"),
         (b"TEXT/HTML; charset=utf-8", "report.html"),
         (b"text/plain \t; format=flowed", "report.txt"),
-        # A byte outside a token makes the type invalid, as any such
-        # character does in a str.
+        # A byte outside ASCII stays in the type, which then has no
+        # extension, whichever bytes a str gives back for it.
         (b"application/pdf\xe9", "report"),
         (b"application/p\xe9df", "report"),
         (b"", "report"),

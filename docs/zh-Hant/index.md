@@ -36,7 +36,7 @@ python -m pip install browser-download-filename
 
 | 函式 | 用途 |
 | --- | --- |
-| `suggested_filename(headers, url=..., ...)` | Chrome 替一次下載取的檔名：依序從 Content-Disposition、`<a download>` 的值、網址或預設名取得，再清洗。Content-Disposition 取自回應的標頭或 `content_disposition=`。選用參數可以加上 Chrome 依 MIME 類型補副檔名的規則，以及選擇它在 Windows 或 POSIX 上的規則。 |
+| `suggested_filename(headers, url=..., ...)` | Chrome 替一次下載取的檔名：依序從 Content-Disposition、`<a download>` 的值、網址或預設名取得，再清洗；不是取自 Content-Disposition 的檔名，可能依 MIME 類型補上副檔名。Content-Disposition 和 MIME 類型取自回應的標頭，或 `content_disposition=` 與 `content_type=`；`platform=` 選擇 Chrome 在 Windows 或 POSIX 上的規則。 |
 | `sanitize_filename(name)` | 把 Chrome 的清洗規則套用在任何來源的名稱上，例如網頁標題或使用者輸入，清洗方式跟 Chrome 清洗 `<a download>` 的值相同。 |
 | `parse_content_disposition(value)` | 照 Chromium 的方式讀出標頭的處置類型和解碼後的檔名，不做清洗；也告訴你 Chrome 會不會因為 Content-Disposition 的值彼此不同而拒絕這個回應。 |
 
@@ -44,6 +44,6 @@ python -m pip install browser-download-filename
 
 ## 有多精確 {#how-exact-it-is}
 
-標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 800 多個案例，要求每一個的檔名都完全相同。測試的細節見[如何驗證](verification.md)；Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)。
+標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 800 多個案例：檔名由標頭和網址決定的案例，要求每一個都完全相同；Chrome 會檢查內容來決定 MIME 類型的案例，則改為檢查逐案列出的檔名。測試的細節見[如何驗證](verification.md)；Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)。
 
 下一步：範例在[使用方式](usage.md)，完整的 API 在 [API 參考](api-reference.md)。

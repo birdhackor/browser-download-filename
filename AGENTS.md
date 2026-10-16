@@ -55,12 +55,13 @@ uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
 2. **還原位元組**（`_bytes.header_bytes`）：Chromium 解析的是線上的原始位元組，所以所有解析都在 `bytes` 上做。bytes 原樣使用。HTTP 函式庫給的 `str` 先還原：有 `headers_encoding` 時一律 `value.encode(headers_encoding, "surrogateescape")`，編不回去丟 `ValueError`；沒有時用推測規則：每個字元都在 U+0000–U+00FF、而且這些 Latin-1 位元組是合法 UTF-8 時，直接用它們（requests、urllib3、`http.client` 的情形）；否則當成文字以 UTF-8 編碼，surrogate escape（aiohttp）還原成原本的位元組。
 3. **切標頭**（`_http`，HttpUtil 的迭代器）：每一行 Content-Disposition 依引號外的逗號切開（去掉前後 LWS、保留空值），接成一份值清單，命名只用第一個值（`HttpResponseHeaders::EnumerateHeader`）。清單裡只要有一個值跟第一個值逐位元組不同，`ContentDisposition.blocks_download` 就是 `True`：Chromium 以 `ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION` 拒絕整個回應（`HttpUtil::HeadersContainMultipleCopiesOfField`）；單一行的 `attachment,` 或 `filename=a,b.txt` 也會。`suggested_filename` 不回報這件事，照樣用第一個值命名。參數由左到右讀，遇到第一個格式錯誤的參數就結束。
 4. **解析 Content-Disposition**（`_content_disposition._parse`）：`filename*`（RFC 8187）解得開就優先，否則用 `filename`。後者照瀏覽器而不是 RFC 解碼，規則見 `docs/en/behavior.md` 的〈Reading Content-Disposition〉。`parse_content_disposition` 給的檔名**沒有清洗**，可能含路徑分隔符號。
-5. **產生檔名**（`_filename.suggested_filename` → `_generate`）：依序取 Content-Disposition、`download_attribute`（`<a download>` 的值）、URL 路徑最後一段（`_url` 只重現 GURL 中會影響檔名的部分）、host（僅在 `default_name` 為 `None` 時）；接著清洗、替換非法字元、依 MIME 補上或修正副檔名（名字來自 Content-Disposition 時不動副檔名）。`sanitize_filename` 走同一條路徑，等於只給 `download_attribute` 的 `suggested_filename`。
-6. **字元集**（`_charset`）：模擬 Chromium 內建的 ICU。名稱以 `strip_for_compare` 鬆散比對 `CHARSET_ALIASES`，用的是 WHATWG 標籤，所以 `ISO-8859-1` 是 windows-1252。單位元組字元集查產生的表；多位元組字元集用 Python codec，其中有 ICU 狀態表的（`MULTI_BYTE_STATES`）另依狀態表切字元，並套用產生的修正。
+5. **推導 MIME type**（`_mime.download_mime_type`）：只在有 `headers` 或 `content_type` 時推導，兩者都沒有就不用 MIME。Content-Type 行是 `content_type=`（不是 `None` 就是唯一的一行，空字串也算）或清單裡所有的 Content-Type 行；X-Content-Type-Options 只來自 `headers`。網路層（`HttpResponseHeaders::GetMimeTypeAndCharset`）：各行去掉前後 LWS、以 `, ` 接起來，在引號外的逗號處切開、略過空值，每個值依序交給 `HttpUtil::ParseContentType`：`net::ParseMimeType` 取得的 type 從第一個非 LWS 字元到 ` \t;(` 之前、必須包含第一個 `/`，不做 token 檢查；取不到 type 或整個值剛好是 `*/*` 時不改變結果，否則換成 ASCII 小寫的 type。接著照 `net::ShouldSniffMimeType` 判斷 Chrome 會不會 sniff 內容（scheme、X-Content-Type-Options 第一行的第一個值、手寫的可 sniff 型別清單與 unknown 型別）：不會時，空型別與 feed 型別換成 `text/plain`（`services/network/url_loader.cc`）；會時沿用宣告的型別，因為本套件沒有內容可讀。
+6. **產生檔名**（`_filename.suggested_filename` → `_get_suggested_filename` → `_generate`）：依序取 Content-Disposition、`download_attribute`（`<a download>` 的值）、URL 路徑最後一段（`_url` 只重現 GURL 中會影響檔名的部分）、host（僅在 `default_name` 為 `None` 時）；接著清洗、替換非法字元、依 MIME 補上或修正副檔名（名字來自 Content-Disposition 時不動副檔名）。`_get_suggested_filename` 收的是 `net::GetSuggestedFilename` 的引數，`mime_type` 原樣查表，跟 Chromium 一樣不轉小寫、不去參數。`sanitize_filename` 走同一條路徑，等於只給 `download_attribute` 的 `suggested_filename`。
+7. **字元集**（`_charset`）：模擬 Chromium 內建的 ICU。名稱以 `strip_for_compare` 鬆散比對 `CHARSET_ALIASES`，用的是 WHATWG 標籤，所以 `ISO-8859-1` 是 windows-1252。單位元組字元集查產生的表；多位元組字元集用 Python codec，其中有 ICU 狀態表的（`MULTI_BYTE_STATES`）另依狀態表切字元，並套用產生的修正。
 
 對照 Chromium 時要知道的：
 
-- 公開參數 `fallback_charset`、`content_type`、`download_attribute` 在內部沿用 Chromium 的名字 `referrer_charset`、`mime_type`、`suggested_name`；`default_name=None` 在內部是 Chromium 的空字串 default name。
+- 公開參數 `fallback_charset`、`download_attribute` 在內部沿用 Chromium 的名字 `referrer_charset`、`suggested_name`；`default_name=None` 在內部是 Chromium 的空字串 default name。`content_type` 是一行 Content-Type 標頭；內部的 `mime_type` 則是 `_mime` 推導出、交給 `net::GetSuggestedFilename` 的型別。
 - 被拒的回應（`blocks_download`）：一般連結什麼都不下載（Chrome 顯示錯誤頁面）；有 `download` 屬性的連結仍會開始一個失敗的下載，名字是在沒有 Content-Disposition、也沒有 MIME type 的情況下算出來的（`download_response_handler.cc` 的失敗路徑），也就是只看 `download` 屬性與網址。`tests/browser/test_browsers.py` 的 `chromium_expectation` 照這個規則預期。
 - `platform="windows"` 對應 Chromium 的 `#if BUILDFLAG(IS_WIN)` 分支（內部是 `windows: bool`）。預設的 `None` 在呼叫時依 `sys.platform` 決定：Windows 上用 Windows 規則，其他用 POSIX 規則；所以結果會因平台而不同的測試與文件範例要明確傳 `platform=`，不能依賴執行它的作業系統。其他依作業系統而異的部分（非 UTF-8 的原始位元組、MIME 資料庫）以 Linux 上的 Chrome 為準；CI 的 Chromium 比對也在 Linux 跑。
 
@@ -76,12 +77,13 @@ uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
 
 ## 測試
 
-- `test_chromium_*.py`：逐案移植的 Chromium 單元測試。`tests/browser/corpus.py` 直接 import `test_chromium_content_disposition.py` 的案例清單，改名或改形狀會牽動瀏覽器語料。
+- `test_chromium_*.py`：逐案移植的 Chromium 單元測試。`tests/browser/corpus.py` 直接 import `test_chromium_content_disposition.py` 的案例清單，改名或改形狀會牽動瀏覽器語料。`test_chromium_filename_util.py` 經 `_get_suggested_filename` 直接給 Chromium 核心收到的 `mime_type`，不經 `_mime` 的推導。
+- `test_mime.py`：`_mime` 的網路層解析、X-Content-Type-Options 與可 sniff 型別的判斷、URLLoader 的轉換，以及公開入口如何從 `headers` 與 `content_type` 取得 MIME type。
 - `test_api.py` 鎖住公開名稱、參數順序與參數種類（positional-only、keyword-only）。改 API 時一起改它與兩種語言的 `api-reference.md`。
 - `test_headers.py`：`HeadersLike` 的各種形狀、順序、只走訪一次、`content_disposition=` 的取代，以及 `blocks_download` 的規則。`SHAPES` 標成 `HeadersLike`，讓 mypy 檢查這些形狀在型別上也被接受。
 - `test_docs.py` 執行 README 與 `docs/*/*.md` 裡每個 ```` ```pycon ```` 區塊，同一份文件的區塊共用命名空間；行為一改，範例的輸出也要跟著改。需要網路、不該執行的範例用 ```` ```python ````。它也禁止 README、`docs`、`MAINTENANCE.md`、`src`、`tests`、`scripts` 出現看不見或會重排文字的字元（例如 U+202E、全形空白）：程式碼裡寫成 escape，文件裡寫成 U+XXXX。
 - `test_charset.py` 把 ICU 狀態表接受的每個序列的解碼摘要跟 `MULTI_BYTE_DIGESTS` 比較，所以某個 Python 版本的 CJK codec 一改就會失敗。修法是讓 generator 把差異也寫成修正，不是放寬測試。
-- `tests/browser/`：本機伺服器逐位元組送出每個案例，經 Playwright 點連結下載，比對 `download.suggested_filename`。**Chromium 必須全部一致**；Firefox 與 WebKit 不一致只記 xfail。Chromium 不一致時，先判斷是移植的 bug 還是 Chromium 改了行為，不要改預期值去遷就測試。新增語料案例時，id 必須唯一（`all_cases()` 會檢查），標頭值不能含 CR、LF、NUL。
+- `tests/browser/`：本機伺服器依序逐位元組送出每個案例的標頭行與內容，經 Playwright 點連結下載，比對 `download.suggested_filename`。案例分兩組，在 `corpus.py` 逐案列出：**精確集合**（`exact_cases()`，標頭與網址就決定檔名）Chromium 必須跟本套件全部一致；**限制集合**（`limited_cases()`，`LimitedCase`：Chrome 會 sniff 內容）由另一個測試斷言下載有發生、Chromium 給出針對該內容列出的名字、本套件給出列出的退路名字。案例屬於哪一組由人列出，不能用本套件的 sniff 判斷式決定。Firefox 與 WebKit 跟 Chrome 不一致只記 xfail。Chromium 不一致時，先判斷是移植的 bug 還是 Chromium 改了行為，不要改預期值去遷就測試。新增語料案例時，id 必須唯一（`all_cases()` 會檢查），標頭值不能含 CR、LF、NUL。
 - pytest 開了 `--strict-markers`、`--strict-config` 與 `xfail_strict = true`。
 
 ## CI 會擋、本機不一定看得到的事

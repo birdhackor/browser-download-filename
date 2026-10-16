@@ -56,7 +56,7 @@ leading and trailing dots are removed, so `../../etc/passwd` becomes
 
 | Function | What it does |
 | --- | --- |
-| `suggested_filename(headers, url=..., ...)` | The file name Chrome picks for a download: from Content-Disposition, an `<a download>` value, the URL or a default, then sanitized. Content-Disposition comes from the response's headers or from `content_disposition=`. Optional arguments add Chrome's extension rules for a MIME type and choose between its Windows and POSIX rules. |
+| `suggested_filename(headers, url=..., ...)` | The file name Chrome picks for a download: from Content-Disposition, an `<a download>` value, the URL or a default, then sanitized; a name that is not from Content-Disposition can get the extension of the MIME type. Content-Disposition and the MIME type come from the response's headers, or from `content_disposition=` and `content_type=`; `platform=` chooses between Chrome's Windows and POSIX rules. |
 | `sanitize_filename(name)` | Chrome's sanitization applied to a name from anywhere, such as a page title or user input, the way Chrome cleans an `<a download>` value. |
 | `parse_content_disposition(value)` | The disposition type and the decoded file name of a header, as Chromium reads them, without sanitizing, and whether Chrome refuses the response because its Content-Disposition values differ. |
 
@@ -70,8 +70,10 @@ supports CPython 3.11 and later, and PyPy.
 The parser, the charset decoders and the file name rules are ports of
 Chromium's code at a pinned revision, and Chromium's own unit test cases are
 part of the test suite. CI also downloads more than 800 cases with a real
-Chromium and requires the same name for every one. [How it is
-checked](verification.md) describes the tests; [Behavior and browser
+Chromium and requires the same name for every one that the headers and the URL
+decide; where Chrome sniffs the body for a MIME type, it checks the names
+listed for each case instead. [How it is checked](verification.md) describes
+the tests; [Behavior and browser
 differences](behavior.md) lists what Chrome does that this package leaves to
 you, such as numbering files that already exist.
 

@@ -4,7 +4,7 @@
 
 ## 讀取 Content-Disposition {#reading-content-disposition}
 
-- **只看第一個值。** 每一行 Content-Disposition 都會在引號外的逗號處切開，檔名取自第一行的第一個值；所以重複的標頭不論是分成好幾行，還是被 HTTP 函式庫用 `, ` 接成一行，結果都一樣。只要有任何一個值跟第一個值不同（去掉前後的空白和 tab 之後逐位元組比較），Chrome 就會拒絕整個回應，什麼都不下載；有 `download` 屬性的連結則會開始一個失敗的下載（見[使用方式](usage.md#several-content-disposition-headers)）。內容不同的重複標頭會這樣，只有一個標頭、但引號外有逗號時也會，例如 `filename=a,b.txt` 或結尾多一個逗號。`parse_content_disposition` 用 `blocks_download` 回報這種情況；`suggested_filename` 照樣用第一個值決定檔名。
+- **只看第一個值。** 每一行 Content-Disposition 都會在引號外的逗號處切開，檔名取自第一行的第一個值。所以只要引號都有關上，重複的標頭不論是分成好幾行，還是被 HTTP 函式庫用 `, ` 接成一行，結果都一樣。沒關上的引號會一路延續到該行結尾，接成一行時就會吞進後面的值：`attachment; filename="a` 和 `attachment; filename=b` 兩行，檔名是 `a`，而且有兩個不同的值；接成一行則是單一個值，檔名是 `a, attachment; filename=b`。只要有任何一個值跟第一個值不同（去掉前後的空白和 tab 之後逐位元組比較），Chrome 就會拒絕整個回應，什麼都不下載；有 `download` 屬性的連結則會開始一個失敗的下載（見[使用方式](usage.md#several-content-disposition-headers)）。內容不同的重複標頭會這樣，只有一個標頭、但引號外有逗號時也會，例如 `filename=a,b.txt` 或結尾多一個逗號。`parse_content_disposition` 用 `blocks_download` 回報這種情況；`suggested_filename` 照樣用第一個值決定檔名。
 - **處置類型。** `inline` 是 inline；`attachment` 和其他任何 token 都是 attachment。不是以 token 開頭的標頭（例如 `filename=report.pdf`）會整個當成參數來讀，類型是 inline，裡面的檔名照樣採用。
 - **參數**由左到右讀，遇到第一個格式錯誤的參數就停止：沒有 `=`、值是空的，或名稱裡有引號。
 - **`filename*` 優先**，不論出現順序，只要能解碼。它的值是 `charset'language'百分比編碼的位元組`（RFC 8187）：語言標記會被忽略；字元集可以是 Chromium 認得的任何一種（`UTF-8`、`ISO-8859-1`、`Shift_JIS`……）；位元組必須是該字元集的合法內容；結果會正規化成 NFC。無法解碼的 `filename*` 會被略過，改用 `filename`。
@@ -31,16 +31,23 @@
 1. 去掉開頭和結尾的 `.`（在 Windows 上，結尾的 `.` 和空白會先換成 `_`），並把 `/` 和 `\` 換成 `_`。
 2. 如果這時檔名是空的，或只由 `-` 和 `_` 組成，就換成 `default_name`（沒有另外指定時是 `download`）；`default_name` 是 `None` 時換成 `download`。
 3. 任何位置都不允許的字元換成 `_`：`"`、`*`、`/`、`:`、`<`、`>`、`?`、`\`、`|`、控制字元、Unicode 格式字元（例如由右至左覆寫字元 U+202E）以及非字元（noncharacter）。出現在開頭或結尾的空白、`.` 和 `~` 也換成 `_`。
-4. 套用 `content_type` 的副檔名規則和 Windows 規則，說明見[使用方式](usage.md#add-an-extension-from-the-content-type)。
+4. 套用 MIME 類型的副檔名規則（見 [MIME 類型](#the-mime-type)）和 Windows 規則，說明見[使用方式](usage.md#add-an-extension-from-the-content-type)。
 
 所以由 `report`、U+202E 和 `txt.exe` 組成、看起來像 `reportexe.txt` 的檔名，會變成 `report_txt.exe`。
 
+## MIME 類型 {#the-mime-type}
+
+副檔名取自 Chrome 網路層交給下載程式碼的 MIME 類型。本套件用同樣的方式，從 `headers` 和 `content_type` 推導出它；兩者都沒有時，不使用 MIME 類型。
+
+- **Content-Type。** 所有 Content-Type 行用 `, ` 接起來，再在引號外的逗號處切開，所以某一行沒關上的引號會延續到下一行。每個值的類型從開頭算到第一個空白、tab、`;` 或 `(` 之前，而且必須包含該值的第一個 `/`。除此之外不做任何檢查，所以 `text/` 和 `"text/html"` 都算類型，只是沒有對應的副檔名。最後一個有類型的值決定 MIME 類型，並轉成 ASCII 小寫；沒有類型的值，以及剛好是 `*/*` 的值，不改變結果。所以 `text/plain, text/html` 是 `text/html`，`text/html, bogus` 是 `text/html`，`*/*; q=1` 則是 `*/*`。
+- **檢查內容（sniffing）。** 類型沒有給、是 `text/plain`、`application/octet-stream`、`text/xml`、`application/xml`、Microsoft Office 類型，或是未知的類型（`unknown/unknown`、`application/unknown`、`*/*`）時，Chrome 會檢查內容、改用別的 MIME 類型；除非第一行 X-Content-Type-Options 的第一個值是 `nosniff`（不分 ASCII 大小寫）。Chrome 只檢查 `http:`、`https:`、`file:` 和 `filesystem:` 網址的內容；沒有傳 `url` 時，本套件當成會檢查。本套件看不到內容：Chrome 會檢查內容時，它用宣告的類型，或不用任何類型（見[使用方式](usage.md#when-chrome-sniffs-the-body)）。
+- **不檢查內容時**，沒有類型就當成 `text/plain`；feed 類型 `application/rss+xml` 和 `application/atom+xml` 也換成 `text/plain`。
+
 ## Chrome 在這之外還做的事 {#what-chrome-does-beyond-this}
 
-本套件回傳的是下載開始時，Chrome 回報給 DevTools 和 Playwright 的檔名。Chrome 最後實際寫入的檔案，名稱可能不同：
+本套件回傳的是下載開始時，Chrome 回報給 DevTools 和 Playwright 的檔名；Chrome 檢查內容來決定 MIME 類型時例外（見 [MIME 類型](#the-mime-type)）。Chrome 最後實際寫入的檔案，名稱可能不同：
 
 - **預設文字編碼。** 遇到不是 UTF-8 的原始位元組，Chrome 會用瀏覽器的預設文字編碼解碼。請把它傳給 `fallback_charset`（見[使用方式](usage.md#decode-legacy-charsets)）。
-- **MIME sniffing。** 沒有 `X-Content-Type-Options: nosniff` 時，Chrome 可能檢查內容後改用跟 Content-Type 標頭不同的 MIME 類型，並依它決定副檔名。
 - **已存在的檔案。** Chrome 會替檔名編號，例如 `report (1).pdf`。
 - **過長的檔名。** 檔名超過檔案系統的長度上限時，Chrome 會截短它，並保留副檔名。
 - **作業系統。** Windows 和 macOS 上的 Chrome 還會詢問系統某個 MIME 類型對應什麼副檔名；本套件只用 Chromium 內建的對照表，Linux 上的 Chrome 也只用這份。沒有預設編碼時，對不是 UTF-8 的原始檔名，Windows 上的 Chrome 用系統的 ANSI code page 解碼，macOS 上的 Chrome 把這些位元組換成 U+FFFD；本套件則跟 Linux 上的 Chrome 一樣把它們丟掉。ChromeOS 還會把檔名正規化成 NFC。
@@ -58,10 +65,11 @@
 | Windows 不允許的字元（例如 `<`、`?`、`*`）會被替換 | 是 | 是 | 否 |
 | 結尾的空白會變成 | `_` | 被去掉 | 保留空白 |
 
-[Browsers workflow](https://github.com/birdhackor/browser-download-filename/actions/workflows/browsers.yml) 會用 Firefox，以及 Linux 和 macOS 上的 WebKit 下載每一個測試案例，每次執行的摘要都會列出它們跟本套件結果不同的案例。上表就是這些執行的結果，使用 Playwright 1.64：Firefox 157，以及代表 Safari 的 macOS 上的 WebKit 27.2；macOS 上的 WebKit 跟 Safari 一樣，透過 Apple 的網路程式碼決定下載檔名。831 個案例中，Firefox 有 423 個、macOS 上的 WebKit 有 309 個跟 Chrome 的檔名相同。
+[Browsers workflow](https://github.com/birdhackor/browser-download-filename/actions/workflows/browsers.yml) 會用 Firefox，以及 Linux 和 macOS 上的 WebKit 下載每一個測試案例，每次執行的摘要都會列出它們跟 Chrome 檔名不同的案例。上表就是這些執行的結果，使用 Playwright 1.64：Firefox 157，以及代表 Safari 的 macOS 上的 WebKit 27.2；macOS 上的 WebKit 跟 Safari 一樣，透過 Apple 的網路程式碼決定下載檔名。831 個案例中，Firefox 有 423 個、macOS 上的 WebKit 有 309 個跟 Chrome 的檔名相同。
 
 ## 移植的限制 {#limits-of-the-port}
 
+- **MIME sniffing。** Chrome 檢查內容來決定 MIME 類型時，本套件用宣告的類型，所以副檔名可能跟 Chrome 的不同。只模擬 Chrome 經由網路載入的下載：Playwright 的 `route.fulfill`，以及 `blob:`、`data:`、`file:` 網址，可能得到不同的 MIME 類型。
 - **主機名稱。** Chromium 用 UTS #46 轉換非 ASCII 的主機名稱，本套件用的是 Python 的 IDNA 2003 codec。兩者對某些主機名稱是否合法（以數字結尾的由右至左標籤、超過 63 個字元的標籤）以及主機名稱的 ASCII 形式（`ß` 和 `ς`）看法不同。這只影響主機名稱含非 ASCII 字元的網址，而 HTTP 函式庫不會把這種網址放進 `response.url`：requests、httpx 和 aiohttp 給的都是 ASCII 形式的主機名稱。
 - **網址是否合法。** 主機名稱不會被當成 IPv4 位址解析，所以 Chromium 因為位址格式錯誤而拒絕的網址，在這裡仍可能得到檔名。瀏覽器能載入的網址，兩邊得到的檔名都相同。
 - **Unicode 版本。** `filename*` 的 NFC 正規化用的是執行中 Python 的 Unicode 版本；Chromium 的 ICU 是 Unicode 17.0，Python 3.15 也是。兩者只會在舊版本沒有的字元上不同。

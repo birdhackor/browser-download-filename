@@ -22,8 +22,17 @@ from ._bytes import (
 from ._charset import decode_strict, require_charset
 from ._content_disposition import _parse
 from ._data import FORMAT_RANGES, MIME_PRIMARY_MAPPINGS, MIME_SECONDARY_MAPPINGS
-from ._headers import CONTENT_DISPOSITION, HEADERS_SHAPE, HeadersLike, header_lines, header_values
+from ._headers import (
+    CONTENT_DISPOSITION,
+    CONTENT_TYPE,
+    HEADERS_SHAPE,
+    X_CONTENT_TYPE_OPTIONS,
+    HeadersLike,
+    header_lines,
+    header_values,
+)
 from ._http import first_comma_separated_value
+from ._mime import download_mime_type
 from ._url import ParsedURL, parse_url
 
 Platform = Literal["posix", "windows"]
@@ -66,7 +75,6 @@ _ILLEGAL_AT_ENDS = frozenset(_WHITE_SPACE + ".~")
 _ILLEGAL_IN_SHORT_NAMES = frozenset(_WHITE_SPACE + '"/:+|<>=;?,*')
 
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
-_MIME_ESSENCE = re.compile(r"[!#$%&'*+\-.^_`|~0-9a-z]+/[!#$%&'*+\-.^_`|~0-9a-z]+")
 
 _DOUBLE_EXTENSION_SUFFIXES = frozenset({"bz", "bz2", "gz", "lz", "lzma", "lzo", "xz", "z", "zst"})
 _DOUBLE_EXTENSIONS = frozenset({"user.js"})
@@ -144,14 +152,6 @@ def _replace_extension(name: str, extension: str) -> str:
 
 
 # --- net/base/mime_util.cc ---------------------------------------------------
-
-
-def _mime_essence(mime_type: str | None) -> str:
-    """The lowercased type/subtype that Chromium keeps from a Content-Type."""
-    if not mime_type:
-        return ""
-    essence = _ascii_lower(mime_type.split(";", 1)[0].strip(" \t"))
-    return essence if _MIME_ESSENCE.fullmatch(essence) else ""
 
 
 def _preferred_extension_for_mime_type(mime_type: str) -> str | None:
@@ -333,23 +333,15 @@ def _uses_windows_rules(platform: Platform | None) -> bool:
     return platform == "windows"
 
 
-def _content_type_text(content_type: str | bytes | None, encoding: str | None) -> str | None:
-    """The Content-Type as text for the MIME parsing.
-
-    Bytes, and a str encoded back with ``encoding`` (the headers_encoding),
-    are read as Latin-1, which maps every byte to one character: the type and
-    subtype keep their characters, and any byte outside a token stays
-    outside one.
-    """
+def _content_type_line(content_type: object, encoding: str | None) -> bytes | None:
+    """The ``content_type`` argument as the value of a Content-Type line."""
     if content_type is None:
         return None
     if not isinstance(content_type, (str, bytes, bytearray, memoryview)):
         raise TypeError(
             f"content_type must be str, bytes or None, not {type(content_type).__name__}"
         )
-    if isinstance(content_type, str) and encoding is None:
-        return content_type
-    return header_bytes(content_type, encoding).decode("latin-1")
+    return header_bytes(content_type, encoding)
 
 
 def suggested_filename(
@@ -371,23 +363,28 @@ def suggested_filename(
     filename, else ``download_attribute`` (an ``<a download>`` value), else
     the last segment of the URL path, else ``default_name`` (or, if that is
     None, the URL's host and then ``"download"``), then sanitized for use as
-    a file name.
+    a file name. A name that did not come from Content-Disposition can also
+    get its extension from the response's MIME type.
 
     ``headers`` are the response's headers, as a mapping or an iterable of
-    (name, value) pairs; only Content-Disposition is read from them, as the
-    first comma-separated value of its first line. ``content_disposition``,
-    if it is not None, takes the place of every Content-Disposition line in
-    ``headers``, even if it is empty. ``url`` is the final URL of the
-    response, after redirects. ``content_type`` is the response's
-    Content-Type, as str or bytes (parameters are ignored); it only adds or
-    corrects an extension when the name did not come from
-    Content-Disposition. ``fallback_charset`` and ``headers_encoding`` are
-    as in :func:`parse_content_disposition`; ``fallback_charset`` also
-    applies to %-escaped non-UTF-8 bytes in the URL. ``platform`` chooses
-    Chromium's rules for Linux, macOS and other POSIX systems (``"posix"``)
-    or for Windows (``"windows"``), which also handles reserved device
-    names, trailing dots and spaces, and shell-integrated extensions; None
-    picks the rules of the system the call runs on.
+    (name, value) pairs. Content-Disposition is read from them as the first
+    comma-separated value of its first line. The MIME type comes from their
+    Content-Type lines, read the way Chromium's network stack reads them,
+    and from X-Content-Type-Options, which tells with the type whether Chrome
+    sniffs the body for another one; the package has no body, so where
+    Chrome sniffs it keeps the declared type. ``content_disposition`` and
+    ``content_type``, if they are not None, take the place of every
+    Content-Disposition or Content-Type line in ``headers``, even if they
+    are empty: an empty ``content_type`` is an empty Content-Type. With
+    neither ``headers`` nor ``content_type``, no MIME type is used. ``url``
+    is the final URL of the response, after redirects. ``fallback_charset``
+    and ``headers_encoding`` are as in :func:`parse_content_disposition`;
+    ``fallback_charset`` also applies to %-escaped non-UTF-8 bytes in the
+    URL. ``platform`` chooses Chromium's rules for Linux, macOS and other
+    POSIX systems (``"posix"``) or for Windows (``"windows"``), which also
+    handles reserved device names, trailing dots and spaces, and
+    shell-integrated extensions; None picks the rules of the system the call
+    runs on.
     """
     referrer_charset = require_charset(fallback_charset)
     encoding = require_headers_encoding(headers_encoding)
@@ -395,7 +392,7 @@ def suggested_filename(
     for name, value in (("url", url), ("download_attribute", download_attribute)):
         if value is not None and not isinstance(value, str):
             raise TypeError(f"{name} must be str or None, not {type(value).__name__}")
-    mime_type = _content_type_text(content_type, encoding)
+    content_type_line = _content_type_line(content_type, encoding)
     if default_name is None:
         # Chromium's empty default name: the URL's host, then "download".
         default_name = ""
@@ -411,18 +408,23 @@ def suggested_filename(
         disposition_lines = [header_bytes(content_disposition, encoding)]
     else:
         disposition_lines = header_values(lines, CONTENT_DISPOSITION)
-    content_disposition_filename = None
-    if disposition_lines:
-        # The first value of the first line, which the download code reads.
-        header = first_comma_separated_value(disposition_lines[0])
-        content_disposition_filename = _parse(header, referrer_charset).filename
-    return _generate(
-        parse_url(_scalar_values(url) if url else None),
-        content_disposition_filename,
-        suggested_name=download_attribute,
-        mime_type=mime_type,
-        default_name=default_name,
-        referrer_charset=referrer_charset,
+    parsed_url = parse_url(_scalar_values(url) if url else None)
+    mime_type = ""
+    if headers is not None or content_type_line is not None:
+        if content_type_line is not None:
+            content_type_lines = [content_type_line]
+        else:
+            content_type_lines = header_values(lines, CONTENT_TYPE)
+        options_lines = header_values(lines, X_CONTENT_TYPE_OPTIONS)
+        mime_type = download_mime_type(content_type_lines, options_lines, parsed_url)
+    return _get_suggested_filename(
+        parsed_url,
+        # The download code reads the first line.
+        disposition_lines[0] if disposition_lines else b"",
+        referrer_charset,
+        download_attribute or "",
+        mime_type,
+        default_name,
         windows=windows,
     )
 
@@ -450,12 +452,46 @@ def sanitize_filename(
     return suggested_filename(download_attribute=name, default_name=default_name, platform=platform)
 
 
+def _get_suggested_filename(
+    url: ParsedURL | None,
+    content_disposition: bytes,
+    referrer_charset: bytes | None,
+    suggested_name: str,
+    mime_type: str,
+    default_name: str,
+    *,
+    windows: bool,
+) -> str:
+    """net::GetSuggestedFilename, with the arguments Chromium passes it.
+
+    As in Chromium, an empty argument stands for none; ``url`` is the parsed
+    URL, None for none. ``mime_type`` is used as it is:
+    GetPreferredExtensionForMimeType looks it up exactly, so a type in
+    capitals or with parameters gets no extension. suggested_filename works
+    it out from the response's headers first (see _mime).
+    """
+    content_disposition_filename = None
+    if content_disposition:
+        # HttpContentDisposition reads the first comma-separated value.
+        header = first_comma_separated_value(content_disposition)
+        content_disposition_filename = _parse(header, referrer_charset).filename
+    return _generate(
+        url,
+        content_disposition_filename,
+        suggested_name=suggested_name,
+        mime_type=mime_type,
+        default_name=default_name,
+        referrer_charset=referrer_charset,
+        windows=windows,
+    )
+
+
 def _generate(
     parsed_url: ParsedURL | None,
     content_disposition_filename: str | None,
     *,
-    suggested_name: str | None,
-    mime_type: str | None,
+    suggested_name: str,
+    mime_type: str,
     default_name: str,
     referrer_charset: bytes | None,
     windows: bool,
@@ -481,7 +517,5 @@ def _generate(
         # A Content-Disposition name gets no extension it did not ask for.
         result = _generate_safe_file_name("", False, result, windows)
     else:
-        result = _generate_safe_file_name(
-            _mime_essence(mime_type), overwrite_extension, result, windows
-        )
+        result = _generate_safe_file_name(mime_type, overwrite_extension, result, windows)
     return result or default_name or _FINAL_FALLBACK_NAME

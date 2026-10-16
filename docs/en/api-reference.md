@@ -25,10 +25,10 @@ which is the name Chrome reports to DevTools and Playwright. It is never empty.
 
 | Parameter | Meaning |
 | --- | --- |
-| `headers` | The response's headers (see [`HeadersLike`](#headerslike)); `None` for none. Content-Disposition is read from them: the first comma-separated value of its first line. Nothing else is read from them; pass the Content-Type as `content_type`. |
+| `headers` | The response's headers (see [`HeadersLike`](#headerslike)); `None` for none. Three headers are read from them: Content-Disposition, the first comma-separated value of its first line; every Content-Type line, for the MIME type; and X-Content-Type-Options, whose first value tells whether Chrome sniffs the body for another MIME type (see [The MIME type](behavior.md#the-mime-type)). |
 | `url` | The final URL of the response, after redirects; `None` for no URL. Used only when Content-Disposition and `download_attribute` give no name: the last segment of its path (none for `about:` and `data:` URLs), else its host if `default_name` is `None`. |
 | `content_disposition` | The Content-Disposition header, as bytes or as the str an HTTP library produced. `None`, the default, reads it from `headers`, if any. Any other value takes the place of every Content-Disposition line in `headers`, even an empty string: pass `""` to ignore the file name the server sent. Only its first comma-separated value is used. |
-| `content_type` | The response's Content-Type, as str or as bytes, which are read as Latin-1; parameters are ignored. It adds or corrects an extension when the name does not come from Content-Disposition. |
+| `content_type` | The Content-Type header, as bytes or as the str an HTTP library produced. `None`, the default, reads it from `headers`, if any. Any other value takes the place of every Content-Type line in `headers`; an empty string is an empty Content-Type. The MIME type adds or corrects an extension when the name does not come from Content-Disposition; with neither `headers` nor `content_type`, no MIME type is used. |
 | `download_attribute` | The value of an `<a download>` attribute. Used when Content-Disposition gives no name. |
 | `default_name` | The name when nothing else gives one; it cannot be empty. With `None`, the URL's host is tried first, and `download` is the last resort. |
 | `fallback_charset` | A charset for raw bytes that are not UTF-8, in `filename` and in the URL's path; Chrome uses the browser's default text encoding here. A label Chromium knows, such as `"windows-1252"` or `"big5"`. |
@@ -153,7 +153,9 @@ requests, urllib3, `http.client` and WSGI pass on a header that carried UTF-8.
 Any other str is encoded as UTF-8, with the surrogate escapes that aiohttp uses
 for undecodable bytes turned back into those bytes. The guess can be wrong, for
 example for bytes in a legacy charset that an HTTP library decoded as Latin-1,
-such as `caf\xe9.txt` in windows-1252.
+such as `caf\xe9.txt` in windows-1252. It changes nothing in Content-Type and
+X-Content-Type-Options, though: only ASCII characters can match a MIME type or
+`nosniff`, and the guess always gives them back as the bytes they were.
 
 URLs and the other str arguments are taken as text; lone surrogates in them
 become U+FFFD.

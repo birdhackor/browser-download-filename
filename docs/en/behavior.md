@@ -7,8 +7,13 @@ Chrome does beyond them, and where Firefox and Safari name files differently.
 
 - **First value only.** Every Content-Disposition line is split on commas
   outside quoted strings, and the file is named from the first value of the
-  first line, so it makes no difference whether repeated headers come as
-  several lines or joined with `, ` by an HTTP library. When any value differs
+  first line. So as long as every quote is closed, it makes no difference
+  whether repeated headers come as several lines or joined with `, ` by an
+  HTTP library. A quote left open runs to the end of its line, which in a
+  joined line takes in the values after it: the lines
+  `attachment; filename="a` and `attachment; filename=b` give the name `a`
+  and two values that differ, while joined they are one value, whose name is
+  `a, attachment; filename=b`. When any value differs
   from the first, byte for byte once the spaces and tabs around it are trimmed,
   Chrome refuses the response and downloads nothing; a link with a `download`
   attribute starts a download that fails instead (see
@@ -65,23 +70,49 @@ Then, in this order:
    `<`, `>`, `?`, `\` and `|`, control characters, Unicode format characters
    such as the right-to-left override U+202E, and noncharacters. Whitespace,
    `.` and `~` at the start or end also become `_`.
-4. The extension rules for `content_type` and the Windows rules apply, as
-   described in [Usage](usage.md#add-an-extension-from-the-content-type).
+4. The extension rules for the MIME type (see [The MIME type](#the-mime-type))
+   and the Windows rules apply, as described in
+   [Usage](usage.md#add-an-extension-from-the-content-type).
 
 So a name made of `report`, U+202E and `txt.exe`, which displays as
 `reportexe.txt`, becomes `report_txt.exe`.
 
+## The MIME type
+
+The extension comes from the MIME type that Chrome's network stack hands to
+the download code. The package works it out the same way from `headers` and
+`content_type`; with neither, it uses none.
+
+- **Content-Type.** All Content-Type lines are joined with `, ` and split on
+  commas outside quoted strings, so a quote left open on one line runs on into
+  the next. A value's type runs from its start to the first space, tab, `;`
+  or `(`, and must hold the value's first `/`. Nothing else is checked, so
+  `text/` and `"text/html"` are types, with no extension. The last value that
+  has a type gives it, in ASCII lowercase; a value without one, and the value
+  `*/*` itself, change nothing. So `text/plain, text/html` is `text/html`,
+  `text/html, bogus` is `text/html`, and `*/*; q=1` is `*/*`.
+- **Sniffing.** Chrome sniffs the body for another MIME type when the type is
+  missing, `text/plain`, `application/octet-stream`, `text/xml`,
+  `application/xml`, a Microsoft Office type, or unknown (`unknown/unknown`,
+  `application/unknown`, `*/*`), unless the first value of the first
+  X-Content-Type-Options line is `nosniff`, in any ASCII case. It sniffs only
+  `http:`, `https:`, `file:` and `filesystem:` URLs; without a `url`, the
+  package assumes it sniffs. The package never sees the body: where Chrome
+  sniffs, it uses the declared type, or none (see
+  [Usage](usage.md#when-chrome-sniffs-the-body)).
+- **Without sniffing**, a missing type becomes `text/plain`, and so do the
+  feed types `application/rss+xml` and `application/atom+xml`.
+
 ## What Chrome does beyond this
 
 The package returns the name that Chrome reports to DevTools and Playwright
-when a download starts. The file Chrome finally writes can differ:
+when a download starts, except where Chrome sniffs the body for a MIME type
+(see [The MIME type](#the-mime-type)). The file Chrome finally writes can
+differ:
 
 - **Default text encoding.** For raw bytes that are not UTF-8, Chrome uses the
   browser's default text encoding. Pass it as `fallback_charset` (see
   [Usage](usage.md#decode-legacy-charsets)).
-- **MIME sniffing.** Without `X-Content-Type-Options: nosniff`, Chrome may
-  sniff a different MIME type than the Content-Type header and pick the
-  extension from it.
 - **Existing files.** Chrome numbers the name, as in `report (1).pdf`.
 - **Long names.** Chrome shortens a name that is too long for the file system,
   keeping the extension.
@@ -114,7 +145,7 @@ is still read. On the rest they differ:
 The [Browsers
 workflow](https://github.com/birdhackor/browser-download-filename/actions/workflows/browsers.yml)
 downloads every test case with Firefox, and with WebKit on Linux and on macOS,
-and each run's summary lists the cases where they differ from this package.
+and each run's summary lists the cases where they differ from Chrome.
 The table comes from those runs, with Playwright 1.64: Firefox 157, and WebKit
 27.2 on macOS for Safari, since WebKit on macOS names downloads with Apple's
 networking code, as Safari does. Of the 831 cases, Firefox gives Chrome's name
@@ -122,6 +153,11 @@ for 423 and WebKit on macOS for 309.
 
 ## Limits of the port
 
+- **MIME sniffing.** Where Chrome sniffs the body for a MIME type, the package
+  uses the declared one, so the extension can differ from Chrome's. Only
+  downloads that Chrome loads over the network are modeled: Playwright's
+  `route.fulfill`, and `blob:`, `data:` and `file:` URLs, can give another
+  MIME type.
 - **Hosts.** Chromium converts a non-ASCII host with UTS #46; the package uses
   Python's IDNA 2003 codec. They can disagree on whether a host is valid (a
   right-to-left label that ends in a digit, a label longer than 63 characters)

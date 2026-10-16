@@ -16,8 +16,8 @@ uv run pytest
 ```
 
 `tests/` 底下分成幾層：`test_chromium_*.py` 是逐案移植的 Chromium 單元測試；
-`test_charset.py`、`test_url.py`、`test_behavior.py`、`test_input.py` 補上移植測試沒涵蓋的
-細節；`test_properties.py` 是 Hypothesis 性質測試；`test_docs.py` 執行 README 與
+`test_charset.py`、`test_url.py`、`test_mime.py`、`test_behavior.py`、`test_input.py` 補上
+移植測試沒涵蓋的細節；`test_properties.py` 是 Hypothesis 性質測試；`test_docs.py` 執行 README 與
 `docs/*/*.md` 裡的 ```` ```pycon ```` 範例，並禁止 README、文件與原始碼出現 U+202E 這類
 看不見或會重排文字的字元（程式碼裡寫成 escape，文件裡寫成 U+XXXX）；
 `test_api.py` 鎖住公開 API 的名稱與簽章。`tests/browser/` 是瀏覽器比對測試，沒有
@@ -54,21 +54,30 @@ uv run pytest tests/browser --with-browser chromium --browser-report browser-rep
 ```
 
 `--with-browser` 可以重複指定 `chromium`、`firefox`、`webkit`；`--browser-report` 另外在
-旁邊寫一份 Markdown 摘要（只列結果不同的案例）。測試從本機的原始位元組 HTTP 伺服器送出
-每個案例（`X-Content-Type-Options: nosniff`，排除 MIME sniffing），透過 `<a>` 點擊觸發下載，
-比較 Playwright 的 `download.suggested_filename` 與本套件的結果。
+旁邊寫一份 Markdown 摘要（依精確集合與限制集合分開計數，只列跟 Chrome 檔名不同的案例）。
+測試從本機的原始位元組 HTTP 伺服器依序送出每個案例的標頭行與內容，透過 `<a>` 點擊觸發
+下載，比較 Playwright 的 `download.suggested_filename` 與預期的檔名。多數案例送出一行
+Content-Type、`X-Content-Type-Options: nosniff` 與二進位內容，排除 MIME sniffing；測 MIME
+type 的案例自己列出標頭行與內容。
 
-- **Chromium 必須全部一致**，不一致就是失敗。`browsers.yml` 的 `chromium` job 是 required
-  check（經由 aggregate job `browsers`）。
-- **Firefox 和 WebKit 只出報告**：不一致記為 xfail，只有測試框架本身壞掉時才會失敗。
-  `report` matrix 跑 Linux 的 Firefox、Linux 的 WebKit，以及 macOS 的 WebKit（走 Apple 的
-  網路程式碼，最接近 Safari）。每次執行的 job summary 與 artifact 就是文件〈行為與瀏覽器差異〉
-  所說的差異清單。
+- **精確集合**（`exact_cases()`）：檔名由標頭與網址決定，Chromium 必須跟本套件全部一致，
+  不一致就是失敗。
+- **限制集合**（`limited_cases()`）：Chrome 會 sniff 內容來決定 MIME type 的回應。每個案例
+  寫明本套件依宣告型別給的退路名字，以及 Chromium 對該內容給的名字；Chromium 必須開始下載、
+  給出列出的名字，本套件必須給出列出的退路名字。案例屬於哪一組由人列出，不用本套件的 sniff
+  判斷式決定。
+- `browsers.yml` 的 `chromium` job 跑這兩組，是 required check（經由 aggregate job
+  `browsers`）。
+- **Firefox 和 WebKit 只出報告**：跟 Chrome 的檔名（精確集合是本套件的結果，限制集合是列出的
+  Chromium 檔名）不一致記為 xfail，只有測試框架本身壞掉時才會失敗。`report` matrix 跑 Linux
+  的 Firefox、Linux 的 WebKit，以及 macOS 的 WebKit（走 Apple 的網路程式碼，最接近 Safari）。
+  每次執行的 job summary 與 artifact 就是文件〈行為與瀏覽器差異〉所說的差異清單。
 - 語料在 `tests/browser/corpus.py`：每個案例的 id 必須唯一（`all_cases()` 會檢查），fuzz
   的 seed 固定，所以每次跑的案例都相同。新增案例時，標頭值不能含 CR、LF 或 NUL。
 
-Chromium 跟本套件不一致時，先看報告裡的 Chromium 版本，判斷是移植的 bug，還是 Chromium
-改了行為；後者依〈跟進 Chromium〉處理，不要為了讓測試通過去改測試的預期值。
+Chromium 跟預期不一致時，先看報告裡的 Chromium 版本，判斷是移植的 bug，還是 Chromium
+改了行為（限制集合的名字變了，代表 Chromium 的 sniffing 變了）；後者依〈跟進 Chromium〉處理，
+不要為了讓測試通過去改測試的預期值。
 
 ## 升級 Playwright
 
@@ -121,6 +130,15 @@ Actions 會顯示失敗，要有人來看。
    Unicode 版本、但還沒有 Python 支援時，先停在舊的 ICU，或等新 Python 的 beta。
 5. 跑完整測試與 Chromium 瀏覽器測試，在 changelog（`docs/en` 與 `docs/zh-Hant`）寫明新的
    Chromium revision，以及檔名會因此改變的情況。
+
+MIME type 的推導（`_mime.py`）是手寫的，`generate_data.py --check` 不涵蓋它。升級釘選
+revision 時，對照上游逐一重新檢查：可 sniff 的型別清單與 unknown 型別（`net/base/mime_sniffer.cc`
+的 `kSniffableTypes`、`IsUnknownMimeType`）、X-Content-Type-Options 與 scheme 的判斷
+（`ShouldSniffMimeType`）、URLLoader 不 sniff 時的轉換（`services/network/url_loader.cc`：空型別
+與 feed 型別換成 `text/plain`），以及網路層的 MIME 解析（`net/http/http_response_headers.cc` 的
+`GetMimeTypeAndCharset`、`net/http/http_util.cc` 的 `ParseContentType`、`net/base/mime_util.cc`
+的 `ParseMimeType`）。這些來源檔也要列在 `chromium-drift.py` 的 `TRACKED` 裡，drift job 才看得到
+它們的變動。
 
 字元集的部分：單位元組表直接來自 ICU 的 `.ucm`；多位元組字元集用 Python 的 codec，
 加上 generator 從 ICU 對照檔算出的修正（`MULTI_BYTE_OVERRIDE_*`、`MULTI_BYTE_REJECT_RUNS`）。

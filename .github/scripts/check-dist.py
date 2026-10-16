@@ -25,6 +25,7 @@ MODULES = {
     "_filename.py",
     "_headers.py",
     "_http.py",
+    "_mime.py",
     "_url.py",
     "py.typed",
 }

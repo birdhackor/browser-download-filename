@@ -21,7 +21,8 @@ inside quotes. This package gives the name Chrome gives.
 - **Chromium's answer** — the header parser, the charset decoders and the
   file name sanitization are ports of Chromium's code at a pinned revision,
   tested with Chromium's own unit test cases. CI downloads more than 800 cases
-  with a real Chromium and requires the same name for each.
+  with a real Chromium and requires the same name for each one that the
+  headers and the URL decide.
 - **Bytes or str** — pass the header as the bytes on the wire, or as the str
   your HTTP library made of them; the Latin-1 strs of requests, urllib3 and
   `http.client` and the surrogate-escaped strs of aiohttp are mapped back to

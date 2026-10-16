@@ -31,6 +31,26 @@ NAMED = st.sampled_from([b"a.txt", b"b.pdf", b"c"]).map(
 LINES = st.lists(st.one_of(HEADERS, NAMED), max_size=4)
 TEXT = st.text(max_size=80)
 PLATFORMS = st.sampled_from(["posix", "windows"])
+CONTENT_TYPE_PIECES = st.sampled_from(
+    [
+        b"text/html", b"text/plain", b"TEXT/HTML", b"image/png", b"application/rss+xml",
+        b"application/octet-stream", b"*/*", b"text", b"/", b",", b", ", b";", b"; charset=",
+        b"utf-8", b'"', b"\\", b" ", b"\t", b"(", b")", b"=", b"\xe9", b"\xc3\xa9", b"bogus",
+    ]
+)  # fmt: skip
+CONTENT_TYPE_VALUES = st.lists(CONTENT_TYPE_PIECES, max_size=8).map(b"".join)
+CONTENT_TYPES = st.one_of(
+    st.binary(max_size=60),
+    CONTENT_TYPE_VALUES,
+    st.lists(CONTENT_TYPE_VALUES, min_size=2, max_size=3).map(b", ".join),
+)
+OPTIONS = st.lists(
+    st.one_of(
+        st.binary(max_size=20),
+        st.sampled_from([b"nosniff", b"NOSNIFF", b'"nosniff"', b"nosniff, x", b"x, nosniff"]),
+    ),
+    max_size=2,
+).map(lambda values: [("X-Content-Type-Options", value) for value in values])
 
 
 @settings(max_examples=500)
@@ -95,6 +115,48 @@ def test_suggested_filename_is_always_a_safe_name(header: bytes, path: str, plat
         platform=platform,  # type: ignore[arg-type]
     )
     _assert_safe(name)
+
+
+@settings(max_examples=400)
+@given(st.lists(CONTENT_TYPES, max_size=3), OPTIONS, TEXT, PLATFORMS)
+def test_any_content_type_gives_a_safe_name(
+    content_types: list[bytes], options: list[tuple[str, bytes]], path: str, platform: str
+) -> None:
+    headers = [("Content-Type", value) for value in content_types] + options
+    name = suggested_filename(
+        headers,
+        # A query lets the MIME type replace the extension.
+        url="https://example.com/" + path + "?q",
+        platform=platform,  # type: ignore[arg-type]
+    )
+    _assert_safe(name)
+
+
+@settings(max_examples=300)
+@given(CONTENT_TYPES, OPTIONS, TEXT)
+@example(b"text/plain, text/html", [], "page")
+def test_content_type_argument_is_a_content_type_line(
+    value: bytes, options: list[tuple[str, bytes]], path: str
+) -> None:
+    url = "https://example.com/" + path + "?q"
+    assert suggested_filename(options, url=url, content_type=value, platform="posix") == (
+        suggested_filename([("Content-Type", value), *options], url=url, platform="posix")
+    )
+
+
+@settings(max_examples=300)
+@given(st.lists(CONTENT_TYPES, min_size=1, max_size=3), OPTIONS)
+@example([b'text/plain; note="', b"text/html"], [])
+def test_content_type_lines_are_their_values_joined(
+    values: list[bytes], options: list[tuple[str, bytes]]
+) -> None:
+    # Chromium joins the lines, trimmed, with ", " before it splits them, so
+    # a quote left open on one line goes on into the next.
+    joined = b", ".join(value.strip(b" \t") for value in values)
+    url = "https://example.com/page"
+    assert suggested_filename(
+        [*(("Content-Type", value) for value in values), *options], url=url, platform="posix"
+    ) == suggested_filename([("Content-Type", joined), *options], url=url, platform="posix")
 
 
 @settings(max_examples=400)
@@ -178,4 +240,27 @@ def test_large_adversarial_inputs_are_fast() -> None:
     started = time.perf_counter()
     assert parse_content_disposition(lines).blocks_download
     assert suggested_filename(lines) == "download"
+    assert time.perf_counter() - started < 2.0
+
+
+def test_large_adversarial_content_types_are_fast() -> None:
+    url = "https://example.com/x"
+    for value in [
+        b"," * 500_000,
+        b'"' * 200_000,
+        b'"a",' * 125_000,
+        b"text/html, " * 50_000,
+        b"text/html;" + b"(" * 200_000,
+        b"/" * 200_000,
+        b"\\" * 200_000,
+        b" " * 200_000 + b"text/html",
+    ]:
+        started = time.perf_counter()
+        # Both as one line and as the value of each of many lines.
+        suggested_filename([("Content-Type", value), ("X-Content-Type-Options", value)], url=url)
+        suggested_filename([("Content-Type", value[:50])] * 10_000, url=url)
+        assert time.perf_counter() - started < 2.0
+    lines = [("Content-Type", b"text/html")] * 20_000 + [("X-Content-Type-Options", b"x")] * 20_000
+    started = time.perf_counter()
+    assert suggested_filename(lines, url=url) == "x.html"
     assert time.perf_counter() - started < 2.0

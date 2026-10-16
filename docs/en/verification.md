@@ -29,14 +29,15 @@ Chromium fails the test.
 The browser tests in `tests/browser/` serve each case from a local HTTP server
 that writes the response headers byte for byte, download it with Chromium
 through Playwright, and compare the suggested file name that Chromium reports
-with what `suggested_filename` returns for the same URL, headers and MIME type.
+with what `suggested_filename` returns for the same URL and headers.
 There are 831 cases:
 
 - the headers of Chromium's unit tests;
 - headers seen in practice: both parameter orders, language tags, raw UTF-8,
   %-escapes, RFC 2047, quotes and semicolons, trailing semicolons, repeated
   headers;
-- URLs, MIME types and `<a download>` values;
+- URLs, Content-Type and X-Content-Type-Options headers, and `<a download>`
+  values;
 - every charset label Chromium knows;
 - every character of every single-byte charset, every character of up to three
   bytes in every multi-byte charset, samples of gb18030's four-byte
@@ -44,10 +45,16 @@ There are 831 cases:
   disagree;
 - 150 headers made by randomly mutating the others.
 
-Chromium must give the same name for every case, or CI fails. The cases also
-run with Firefox, and with WebKit on Linux and macOS; those runs list the
-differences in their summary instead of failing (see [Behavior and browser
-differences](behavior.md#other-browsers)).
+The cases come in two sets, listed case by case in `tests/browser/corpus.py`.
+In the exact set, the headers and the URL decide the name, and Chromium must
+give the package's name for every case, or CI fails. The limited set holds
+responses whose body Chromium sniffs for a MIME type, where the package uses
+the declared type instead (see [The MIME type](behavior.md#the-mime-type)):
+for each case, Chromium must start the download and give the name listed for
+its body, and the package must give the name listed for its headers and URL.
+The cases also run with Firefox, and with WebKit on Linux and macOS; those
+runs list where the names differ from Chrome's in their summary instead of
+failing (see [Behavior and browser differences](behavior.md#other-browsers)).
 
 To run the browser tests yourself:
 
