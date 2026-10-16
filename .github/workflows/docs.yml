@@ -1,0 +1,77 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - zensical.en.toml
+      - zensical.zh-Hant.toml
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.15"
+      - name: Install zensical
+        run: pip install "zensical==0.0.70"
+      # zensical builds one language per run, each with its own config and its
+      # own subdirectory of site/.
+      - name: Build English documentation
+        run: zensical build --config-file zensical.en.toml --clean
+      - name: Build Traditional Chinese documentation
+        run: zensical build --config-file zensical.zh-Hant.toml --clean
+      - name: Write root redirect to the default language
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>browser-download-filename</title>
+          <link rel="canonical" href="https://birdhackor.github.io/browser-download-filename/en/">
+          <meta http-equiv="refresh" content="0; url=./en/">
+          <script>location.replace("./en/" + location.hash)</script>
+          </head>
+          <body>
+          <p>Redirecting to the <a href="./en/">browser-download-filename documentation</a>.</p>
+          </body>
+          </html>
+          HTML
+      - name: Verify generated site
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required in site/index.html site/en/index.html site/zh-Hant/index.html; do
+            if [[ ! -f "$required" ]]; then
+              echo "error: zensical did not produce $required" >&2
+              exit 1
+            fi
+          done
+          mapfile -t html_files < <(find site -type f -name '*.html' -print)
+          echo "verified ${#html_files[@]} HTML files in site/ (en + zh-Hant + root redirect)"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: site
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+        id: deployment

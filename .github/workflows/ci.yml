@@ -1,0 +1,205 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Install the locked development environment
+        run: uv sync --locked --python 3.15
+      - run: uv run --locked ruff check
+      - run: uv run --locked ruff format --check
+      - run: uv run --locked mypy
+
+  build:
+    name: build wheel and sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Build
+        run: uv build --python 3.15
+      - name: Check what the distributions contain
+        run: uv run --no-project --python 3.15 python .github/scripts/check-dist.py dist
+      - name: Check the package metadata and README rendering
+        run: uvx --python 3.15 twine==7.0.0 check --strict dist/*.whl dist/*.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  test:
+    name: test on ${{ matrix.os }} with Python ${{ matrix.python }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15", "pypy3.11"]
+        include:
+          - os: macos-latest
+            python: "3.15"
+          - os: windows-latest
+            python: "3.15"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      # The tests import the installed wheel, not src/, so they also catch
+      # anything the wheel fails to ship.
+      - name: Install the locked test dependencies and the built wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --locked --only-group test --no-install-project --python "${{ matrix.python }}"
+          uv pip install --python .venv dist/*.whl
+      - name: Run the tests
+        shell: bash
+        run: uv run --no-sync python -m pytest -p no:cacheprovider
+
+  sdist:
+    name: build and test the unpacked sdist
+    needs: build
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Build a wheel from the unpacked sdist and run its tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          work_dir="$(mktemp -d)"
+          trap 'rm -rf "$work_dir"' EXIT
+          shopt -s nullglob
+          sdists=(dist/*.tar.gz)
+          if (( ${#sdists[@]} != 1 )); then
+            echo "expected exactly one sdist artifact, found ${#sdists[@]}" >&2
+            exit 1
+          fi
+          mkdir "$work_dir/unpacked"
+          tar -xzf "${sdists[0]}" -C "$work_dir/unpacked"
+          source_dirs=("$work_dir"/unpacked/*)
+          if (( ${#source_dirs[@]} != 1 )) || [[ ! -d "${source_dirs[0]}" ]]; then
+            echo "sdist must unpack to exactly one source directory" >&2
+            exit 1
+          fi
+          cd "${source_dirs[0]}"
+          uv build --wheel --python 3.15 --out-dir "$work_dir/wheel"
+          uv venv --python 3.15 "$work_dir/venv"
+          uv pip install --python "$work_dir/venv" "$work_dir"/wheel/*.whl pytest hypothesis
+          "$work_dir/venv/bin/python" -m pytest -p no:cacheprovider -q
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.15"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: artifacts
+      - run: >-
+          python .github/scripts/gen-manifest.py
+          --artifacts artifacts
+          --output manifest.json
+          --package browser_download_filename
+          --source-commit "${{ github.sha }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: manifest
+          path: manifest.json
+          if-no-files-found: error
+
+  verify-batch:
+    name: verify release batch
+    needs: [lint, test, sdist, manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.15"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: release-input/artifacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: manifest
+          path: release-input
+      - run: >-
+          python .github/scripts/verify-batch.py
+          --manifest release-input/manifest.json
+          --artifacts release-input/artifacts
+          --expected-source-commit "${{ github.sha }}"
+      - name: Assemble the verified release batch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-batch/artifacts
+          cp release-input/manifest.json release-batch/manifest.json
+          find release-input/artifacts -type f \( -name '*.whl' -o -name '*.tar.gz' \) \
+            -exec cp {} release-batch/artifacts/ \;
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-batch
+          path: release-batch
+          if-no-files-found: error
+
+  ci:
+    name: ci
+    # Stable aggregate status check for branch protection: the matrix job
+    # names change with the matrix, so required checks target this name.
+    needs: [lint, build, test, sdist, manifest, verify-batch]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert every required job succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "upstream results: $results"
+          for result in $results; do
+            if [[ "$result" != "success" ]]; then
+              echo "a required upstream job concluded '$result'" >&2
+              exit 1
+            fi
+          done
+          echo "all required upstream jobs succeeded"

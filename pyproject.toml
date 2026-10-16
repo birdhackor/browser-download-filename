@@ -1,0 +1,90 @@
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14"]
+build-backend = "uv_build"
+
+[project]
+name = "browser-download-filename"
+version = "0.1.0"
+description = "Name downloaded files exactly as Chromium does: Content-Disposition, URL fallback and filename sanitization in pure Python"
+readme = "README.md"
+requires-python = ">=3.11"
+# The package's own code is MIT OR Apache-2.0. Parts are ported from Chromium
+# (BSD-3-Clause) and the charset tables come from Chromium's ICU data
+# (Unicode-3.0); THIRD-PARTY-LICENSES lists which.
+license = "(MIT OR Apache-2.0) AND BSD-3-Clause AND Unicode-3.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY-LICENSES"]
+authors = [{ name = "birdhackor" }]
+keywords = [
+    "content-disposition",
+    "filename",
+    "download",
+    "http",
+    "rfc6266",
+    "rfc8187",
+    "chromium",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Documentation = "https://birdhackor.github.io/browser-download-filename/"
+Repository = "https://github.com/birdhackor/browser-download-filename"
+Changelog = "https://birdhackor.github.io/browser-download-filename/en/changelog/"
+Issues = "https://github.com/birdhackor/browser-download-filename/issues"
+
+[dependency-groups]
+test = ["pytest>=9.1.1", "hypothesis>=6.170.0"]
+lint = ["ruff>=0.17.1", "mypy>=2.4.0"]
+# The browser differential tests. Playwright pins the browser builds, so a
+# bump here changes the reference browsers; see MAINTENANCE.md. It is part of
+# dev so that mypy checks the browser tests against Playwright's types; the
+# browsers themselves come from `playwright install`.
+browser = ["playwright==1.64.0"]
+dev = [{ include-group = "test" }, { include-group = "lint" }, { include-group = "browser" }]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.build-backend]
+module-name = "browser_download_filename"
+source-include = ["tests/**", "scripts/generate_data.py", "THIRD-PARTY-LICENSES"]
+source-exclude = ["**/__pycache__"]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["src/browser_download_filename/_data.py"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "PT", "RUF", "PIE", "RET"]
+# The formatter wraps code; the long lines left are string literals.
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["browser_download_filename"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+files = ["src", "tests", "scripts", ".github/scripts"]

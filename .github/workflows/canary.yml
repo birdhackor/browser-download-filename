@@ -1,0 +1,129 @@
+name: Weekly canary
+
+on:
+  schedule:
+    # Wednesday 03:41 UTC, off the top of the hour.
+    - cron: "41 3 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  published-package-on-newest-python:
+    name: run the published package on the newest CPython (beta or later)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - id: pick-python
+        name: Pick the newest beta-or-later CPython for this runner
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          manifest="$RUNNER_TEMP/versions-manifest.json"
+          curl --fail --silent --show-error --location --retry 3 --max-time 30 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github.raw+json" \
+            --output "$manifest" \
+            "https://api.github.com/repos/actions/python-versions/contents/versions-manifest.json?ref=main"
+          version="$(python3 .github/scripts/pick-canary-python.py \
+            --manifest "$manifest" --os-version "$VERSION_ID" --arch "${RUNNER_ARCH,,}")"
+          echo "picked CPython $version for Ubuntu $VERSION_ID ${RUNNER_ARCH,,}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ steps.pick-python.outputs.version }}
+      - name: Install the published package and smoke test it
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --pre --upgrade browser-download-filename
+          python - <<'PY'
+          from browser_download_filename import parse_content_disposition, suggested_filename
+
+          header = b"attachment; filename=\"a.zip\"; filename*=UTF-8''%E4%B8%AD%E6%96%87.zip"
+          assert parse_content_disposition(header).filename == "中文.zip"
+          assert suggested_filename("https://example.com/r%C3%A9sum%C3%A9.pdf") == "résumé.pdf"
+          print("published package: ok")
+          PY
+
+  newest-dependencies:
+    name: test with the newest dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Upgrade the lock and test
+        run: |
+          uv lock --upgrade
+          uv sync --python 3.15
+          uv run python -m pytest -p no:cacheprovider
+
+  newest-chromium:
+    name: compare with the newest Playwright Chromium
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Install the newest Playwright and its Chromium
+        run: |
+          uv lock --upgrade-package playwright
+          uv sync --group browser --python 3.15
+          uv run playwright install --with-deps chromium
+      - name: Compare every case with Chromium
+        run: >-
+          uv run python -m pytest tests/browser -p no:cacheprovider
+          --with-browser chromium --browser-report browser-report-chromium.json
+      - name: Summarize
+        if: ${{ always() && hashFiles('browser-report-chromium.md') != '' }}
+        shell: bash
+        run: |
+          { echo "## Newest Chromium"; echo; cat browser-report-chromium.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: browser-report-newest-chromium
+          path: browser-report-chromium.*
+          if-no-files-found: ignore
+
+  # Not part of the dead-man's switch: a change upstream needs a maintainer to
+  # read it, but the published package keeps working meanwhile.
+  chromium-drift:
+    name: Chromium source changed since the ported revision
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Matches the Unicode version of the ICU that _data.py is built from.
+          python-version: "3.15"
+      - name: Check that _data.py is what the generator makes
+        run: python scripts/generate_data.py --check
+      - name: Check the tracked Chromium sources
+        run: python .github/scripts/chromium-drift.py
+
+  ping-dead-mans-switch:
+    name: ping dead-man's switch
+    needs: [published-package-on-newest-python, newest-dependencies, newest-chromium]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Ping configured endpoint after every canary passes
+        env:
+          HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+        shell: bash
+        run: |
+          : "${HEALTHCHECKS_PING_URL:?configure the HEALTHCHECKS_PING_URL secret (MAINTENANCE.md)}"
+          curl --fail --silent --show-error --retry 3 --max-time 20 \
+            --output /dev/null --request POST "$HEALTHCHECKS_PING_URL"

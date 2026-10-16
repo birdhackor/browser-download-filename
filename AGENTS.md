@@ -1,0 +1,95 @@
+# AGENTS.md
+
+## 這是什麼
+
+`browser-download-filename` 把 Chromium 的 Content-Disposition 解析器與下載檔名規則（`net::GetSuggestedFilename`）移植成純 Python、沒有執行期相依的套件。**對錯的標準是「跟 Chromium 給出同一個名字」**，不是 RFC：兩者不同時一律照 Chromium。
+
+`MAINTENANCE.md`（正體中文）是維護 runbook。以下流程照它的章節做，不要另起一套：〈跟進 Chromium〉（升級釘選的 Chromium／ICU revision）、〈升級 Playwright〉、〈Python 支援窗〉、〈發布〉、〈發布後與補救〉。
+
+## 常用指令
+
+`uv sync` 會裝預設的 `dev` group（test、lint，以及 Playwright 套件本身）。
+
+```sh
+uv sync
+uv run ruff check
+uv run ruff format --check
+uv run mypy          # strict；範圍是 src、tests、scripts、.github/scripts
+uv run pytest        # 沒有 --with-browser 時，tests/browser 一律 deselect
+
+uv run pytest tests/test_url.py::test_parse_url_parts            # 單一測試
+uv run pytest tests/test_behavior.py -k precedence
+uv run pytest "tests/test_docs.py::test_examples[README.md]"     # 單一文件的範例；id 是相對路徑，如 docs/en/usage.md
+```
+
+`__version__` 讀的是已安裝套件的 metadata：沒有安裝、只把 `src` 加進 `PYTHONPATH` 時，import 會丟 `PackageNotFoundError`。一律透過 `uv run` 執行。
+
+瀏覽器比對測試要先裝 Playwright 釘的瀏覽器：
+
+```sh
+uv run playwright install chromium     # 全新的 Linux 加 --with-deps
+uv run pytest tests/browser --with-browser chromium --browser-report browser-report-chromium.json
+```
+
+`--with-browser` 可重複指定 `chromium`、`firefox`、`webkit`；`--browser-report` 會在旁邊另寫一份 Markdown 摘要，只列結果不同的案例。
+
+檢查 `_data.py` 是否仍是 generator 的產物。需要網路，也需要 `unicodedata.unidata_version` 等於 `UNICODE_VERSION` 的 Python；拿掉 `--check` 就是重新產生：
+
+```sh
+uv run --no-project --python 3.15 scripts/generate_data.py --check
+```
+
+文件預覽（zensical 版本跟 `.github/workflows/docs.yml` 一致；中文站換成 `zensical.zh-Hant.toml`）：
+
+```sh
+uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
+```
+
+## 架構
+
+公開 API 只有 `__init__.py` 匯出的 `parse_content_disposition`、`suggested_filename`、`ContentDisposition` 與 `__version__`，其餘都是私有模組。移植的函式沿用 Chromium 的名字（轉成 snake_case），或在 docstring 寫出對應的 Chromium 函式（如 `HttpUtil::TrimLWS`、`GetSuggestedFilenameImpl`）；要對照上游，就搜尋那個名字。
+
+處理順序：
+
+1. **還原位元組**（`_bytes.header_bytes`）：Chromium 解析的是線上的原始位元組，所以所有解析都在 `bytes` 上做。HTTP 函式庫給的 `str` 先還原：每個字元都在 U+0000–U+00FF、而且這些 Latin-1 位元組是合法 UTF-8 時，直接用它們（requests、urllib3、`http.client` 的情形）；否則當成文字以 UTF-8 編碼，surrogate escape（aiohttp）還原成原本的位元組。
+2. **切標頭**（`_http`，HttpUtil 的迭代器）：只讀第一個逗號分隔值。參數由左到右讀，遇到第一個格式錯誤的參數就結束。
+3. **解析 Content-Disposition**（`_content_disposition._parse`）：`filename*`（RFC 8187）解得開就優先，否則用 `filename`。後者照瀏覽器而不是 RFC 解碼，規則見 `docs/en/behavior.md` 的〈Reading Content-Disposition〉。`parse_content_disposition` 給的檔名**沒有清洗**，可能含路徑分隔符號。
+4. **產生檔名**（`_filename.suggested_filename` → `_generate`）：依序取 Content-Disposition、`suggested_name`（`<a download>` 的值）、URL 路徑最後一段（`_url` 只重現 GURL 中會影響檔名的部分）、host（僅在 `default_name` 為空時）；接著清洗、替換非法字元、依 MIME 補上或修正副檔名（名字來自 Content-Disposition 時不動副檔名）。
+5. **字元集**（`_charset`）：模擬 Chromium 內建的 ICU。名稱以 `strip_for_compare` 鬆散比對 `CHARSET_ALIASES`，用的是 WHATWG 標籤，所以 `ISO-8859-1` 是 windows-1252。單位元組字元集查產生的表；多位元組字元集用 Python codec，其中有 ICU 狀態表的（`MULTI_BYTE_STATES`）另依狀態表切字元，並套用產生的修正。
+
+對照 Chromium 時要知道的：
+
+- 公開參數 `fallback_charset` 在內部沿用 Chromium 的名字 `referrer_charset`。
+- `platform="windows"` 對應 Chromium 的 `#if BUILDFLAG(IS_WIN)` 分支（內部是 `windows: bool`）。其他依作業系統而異的部分（非 UTF-8 的原始位元組、MIME 資料庫）以 Linux 上的 Chrome 為準；CI 的 Chromium 比對也在 Linux 跑。
+
+有測試守著的不變式（`test_properties.py`、`test_input.py`）：
+
+- 格式錯誤的標頭**永不 raise**，回傳 Chromium 對它的解讀。只有呼叫端的錯誤會丟例外：型別不對（`TypeError`）、Chromium 開不了的 `fallback_charset`（`LookupError`）、未知的 `platform`（`ValueError`）。
+- `suggested_filename` 永遠回傳非空、可以當檔名的字串。
+- 惡意構造的大輸入必須很快處理完（`test_large_adversarial_inputs_are_fast` 會計時）。改 `_http` 的 regex 或解碼迴圈時，注意回溯與二次方的行為。
+
+### 產生的資料
+
+`src/browser_download_filename/_data.py` 由 `scripts/generate_data.py` 從釘選的 Chromium 與 ICU revision 產生，內容是 charset 別名、單位元組表、多位元組的狀態表、修正與摘要、MIME 對照、Unicode Cf 範圍。**不手改**，ruff 也排除它。釘選值的來源是 generator 裡的常數（`CHROMIUM_REVISION`、`CHROMIUM_COMMIT_POSITION`、`ICU_REVISION`、`UNICODE_VERSION`），`_data.py` 只是抄一份。
+
+## 測試
+
+- `test_chromium_*.py`：逐案移植的 Chromium 單元測試。`tests/browser/corpus.py` 直接 import `test_chromium_content_disposition.py` 的案例清單，改名或改形狀會牽動瀏覽器語料。
+- `test_api.py` 鎖住公開名稱、參數順序與哪些參數是 keyword-only。改 API 時一起改它與兩種語言的 `api-reference.md`。
+- `test_docs.py` 執行 README 與 `docs/*/*.md` 裡每個 ```` ```pycon ```` 區塊，同一份文件的區塊共用命名空間；行為一改，範例的輸出也要跟著改。需要網路、不該執行的範例用 ```` ```python ````。它也禁止 README、`docs`、`MAINTENANCE.md`、`src`、`tests`、`scripts` 出現看不見或會重排文字的字元（例如 U+202E、全形空白）：程式碼裡寫成 escape，文件裡寫成 U+XXXX。
+- `test_charset.py` 把 ICU 狀態表接受的每個序列的解碼摘要跟 `MULTI_BYTE_DIGESTS` 比較，所以某個 Python 版本的 CJK codec 一改就會失敗。修法是讓 generator 把差異也寫成修正，不是放寬測試。
+- `tests/browser/`：本機伺服器逐位元組送出每個案例，經 Playwright 點連結下載，比對 `download.suggested_filename`。**Chromium 必須全部一致**；Firefox 與 WebKit 不一致只記 xfail。Chromium 不一致時，先判斷是移植的 bug 還是 Chromium 改了行為，不要改預期值去遷就測試。新增語料案例時，id 必須唯一（`all_cases()` 會檢查），標頭值不能含 CR、LF、NUL。
+- pytest 開了 `--strict-markers`、`--strict-config` 與 `xfail_strict = true`。
+
+## CI 會擋、本機不一定看得到的事
+
+- CI 測的是**建好的 wheel**，不是 `src/`，矩陣（`ci.yml` 的 `test`）也含 PyPy；另外把 sdist 解開、重建、再測一次。程式碼必須相容 `requires-python` 的下限，ruff 的 `target-version` 與 mypy 的 `python_version` 也設在那裡。
+- `.github/scripts/check-dist.py` 寫死了 wheel 裡應有的套件檔案（`MODULES`，必須完全相同）、sdist 的必備檔案、`Requires-Python` 與 License-Expression，而且不准有任何執行期相依。增刪或搬動這些檔案、改到這些 metadata 時，一起改它。
+- 改了 `pyproject.toml` 的版本、相依或 `requires-python` 就執行 `uv lock`；CI 安裝環境時一律 `--locked`，lock 沒同步就直接失敗。
+- `README.md` 也是 PyPI 的套件頁，PyPI 會弄壞相對連結，所以裡面的連結一律寫絕對網址。
+
+## 文件
+
+- `docs/en` 與 `docs/zh-Hant` 的頁面一一對應，改一邊就要改另一邊，`changelog.md` 也是。中文標題用 `{#...}` 指定跟英文相同的 anchor。
+- 文件裡寫死了量測值：瀏覽器案例數、Firefox／WebKit 跟 Chrome 一致的案例數與量測時的瀏覽器版本，以及概數（`README.md` 與 `index.md` 的瀏覽器案例數、`verification.md` 的移植測試數）。改了語料、移植了新的 Chromium 測試或升級 Playwright 之後，依新的數字與報告更新兩種語言的 `verification.md`、`behavior.md`、`index.md` 與 `README.md`。
+- 程式碼、註解、docstring 與 README 用英文；`MAINTENANCE.md` 用正體中文。

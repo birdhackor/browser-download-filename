@@ -1,0 +1,53 @@
+[project]
+site_name = "browser-download-filename"
+site_description = "照 Chrome 的方式替下載的檔案命名：Chromium 的 Content-Disposition 解析與下載檔名規則的純 Python 移植。"
+site_url = "https://birdhackor.github.io/browser-download-filename/zh-Hant/"
+repo_url = "https://github.com/birdhackor/browser-download-filename"
+repo_name = "birdhackor/browser-download-filename"
+docs_dir = "docs/zh-Hant"
+site_dir = "site/zh-Hant"
+nav = [
+  { "總覽" = "index.md" },
+  { "使用方式" = "usage.md" },
+  { "行為與瀏覽器差異" = "behavior.md" },
+  { "如何驗證" = "verification.md" },
+  { "API 參考" = "api-reference.md" },
+  { "變更紀錄" = "changelog.md" },
+]
+
+[project.theme]
+language = "zh-Hant"
+features = [
+  "navigation.sections",
+  "navigation.top",
+  "content.code.copy",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "material/brightness-7"
+toggle.name = "切換到深色模式"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "material/brightness-4"
+toggle.name = "切換到淺色模式"
+
+[project.extra]
+alternate = [
+  { name = "English", link = "/browser-download-filename/en/", lang = "en" },
+  { name = "繁體中文", link = "/browser-download-filename/zh-Hant/", lang = "zh-Hant" },
+]
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+pymdownx.superfences = {}
+pymdownx.highlight = { anchor_linenums = true }

@@ -1,0 +1,117 @@
+name: Browsers
+
+# Real browsers name the same downloads that the package names. Chromium must
+# agree on every case: the package ports its rules. Firefox and WebKit only
+# produce a report of where they differ (docs: Behavior and differences).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      chromium-only:
+        description: Skip the Firefox and WebKit reports.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  chromium:
+    name: chromium must match
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Install the locked environment with Playwright
+        run: uv sync --locked --group browser --python 3.15
+      - name: Install Chromium
+        run: uv run --locked playwright install --with-deps chromium
+      - name: Compare every case with Chromium
+        run: >-
+          uv run --locked python -m pytest tests/browser -p no:cacheprovider
+          --with-browser chromium --browser-report browser-report-chromium.json
+      - name: Summarize
+        if: ${{ always() && hashFiles('browser-report-chromium.md') != '' }}
+        shell: bash
+        run: |
+          { echo "## Chromium"; echo; cat browser-report-chromium.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: browser-report-chromium
+          path: browser-report-chromium.*
+          if-no-files-found: ignore
+
+  report:
+    name: ${{ matrix.browser }} on ${{ matrix.os }} (report only)
+    if: ${{ !inputs.chromium-only }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: firefox
+            os: ubuntu-latest
+          - browser: webkit
+            os: ubuntu-latest
+          # WebKit on macOS names downloads through Apple's networking stack,
+          # like Safari does.
+          - browser: webkit
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Install the locked environment with Playwright
+        run: uv sync --locked --group browser --python 3.15
+      - name: Install ${{ matrix.browser }}
+        run: uv run --locked playwright install --with-deps ${{ matrix.browser }}
+      # Differences from Chromium are expected failures, so this step passes;
+      # it fails only if the harness itself breaks.
+      - name: Compare every case with ${{ matrix.browser }}
+        run: >-
+          uv run --locked python -m pytest tests/browser -p no:cacheprovider
+          --with-browser ${{ matrix.browser }}
+          --browser-report browser-report-${{ matrix.browser }}-${{ runner.os }}.json
+      - name: Summarize
+        if: ${{ always() && hashFiles('browser-report-*.md') != '' }}
+        shell: bash
+        run: |
+          {
+            echo "## ${{ matrix.browser }} on ${{ runner.os }}"
+            echo
+            cat browser-report-*.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: browser-report-${{ matrix.browser }}-${{ runner.os }}
+          path: browser-report-*
+          if-no-files-found: ignore
+
+  browsers:
+    name: browsers
+    # Stable aggregate status check for branch protection. Only Chromium is
+    # required; the reports never block.
+    needs: [chromium]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert the Chromium comparison succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="${{ needs.chromium.result }}"
+          echo "chromium: $result"
+          if [[ "$result" != "success" ]]; then
+            echo "the Chromium comparison concluded '$result'" >&2
+            exit 1
+          fi

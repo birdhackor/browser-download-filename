@@ -1,0 +1,53 @@
+[project]
+site_name = "browser-download-filename"
+site_description = "Name downloaded files the way Chrome does: a pure-Python port of Chromium's Content-Disposition parser and download naming rules."
+site_url = "https://birdhackor.github.io/browser-download-filename/en/"
+repo_url = "https://github.com/birdhackor/browser-download-filename"
+repo_name = "birdhackor/browser-download-filename"
+docs_dir = "docs/en"
+site_dir = "site/en"
+nav = [
+  { "Overview" = "index.md" },
+  { "Usage" = "usage.md" },
+  { "Behavior and browser differences" = "behavior.md" },
+  { "How it is checked" = "verification.md" },
+  { "API reference" = "api-reference.md" },
+  { "Changelog" = "changelog.md" },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "navigation.sections",
+  "navigation.top",
+  "content.code.copy",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "material/brightness-7"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "material/brightness-4"
+toggle.name = "Switch to light mode"
+
+[project.extra]
+alternate = [
+  { name = "English", link = "/browser-download-filename/en/", lang = "en" },
+  { name = "繁體中文", link = "/browser-download-filename/zh-Hant/", lang = "zh-Hant" },
+]
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+pymdownx.superfences = {}
+pymdownx.highlight = { anchor_linenums = true }

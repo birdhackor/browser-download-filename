@@ -1,0 +1,101 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "enabledManagers": [
+    "github-actions",
+    "pep621",
+    "custom.regex"
+  ],
+  "timezone": "Asia/Taipei",
+  "schedule": [
+    "* 0-5 * * 0"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the uv version that setup-uv installs in CI (version: \"X.Y.Z\"); the github-actions manager only sees the action itself",
+      "managerFilePatterns": [
+        ".github/workflows/*.yml"
+      ],
+      "matchStrings": [
+        "astral-sh/setup-uv@[0-9a-f]{40} # \\S+\\s+with:\\s+version: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "depNameTemplate": "uv",
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "Track tools pinned inline in workflow commands (twine==X.Y.Z, zensical==X.Y.Z)",
+      "managerFilePatterns": [
+        ".github/workflows/*.yml"
+      ],
+      "matchStrings": [
+        "(?<depName>twine|zensical)==(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "pypi"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep action digest updates reviewable as one batch",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions pins"
+    },
+    {
+      "description": "Low-risk auto-merge: non-major updates to CI infrastructure Actions that PR CI fully exercises. Fail-closed allowlist; setup-uv and the PyPI publish Action are excluded, since the publish Action never runs in PR CI. Grouped on its own so this batch can auto-merge.",
+      "groupName": "CI infrastructure Actions",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "actions/checkout",
+        "actions/setup-python",
+        "actions/download-artifact",
+        "actions/upload-artifact"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "Keep uv (setup-uv's version) and the uv_build backend moving together as one build-tool change; human review",
+      "matchDepNames": [
+        "uv",
+        "uv_build",
+        "uv-build"
+      ],
+      "groupName": "uv toolchain"
+    },
+    {
+      "description": "Playwright pins the reference browsers: a bump changes the Chromium the browser tests compare with, and the Firefox and WebKit reports. Human review; see MAINTENANCE.md (升級 Playwright).",
+      "matchDepNames": [
+        "playwright"
+      ],
+      "groupName": "Playwright reference browsers",
+      "automerge": false
+    },
+    {
+      "description": "Test, lint and docs tools as one reviewable batch",
+      "matchDepNames": [
+        "pytest",
+        "hypothesis",
+        "ruff",
+        "mypy",
+        "twine",
+        "zensical"
+      ],
+      "groupName": "Python development tools"
+    }
+  ]
+}
