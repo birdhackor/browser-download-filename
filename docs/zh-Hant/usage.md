@@ -98,7 +98,7 @@ with urllib.request.urlopen(url) as response:
 
 ### 接成一行的標頭與推測的位元組 {#joined-lines-and-guessed-bytes}
 
-requests、httpx 和 httpx2 的 `response.headers` 會用 `, ` 把同一個標頭的好幾行接成一行。搭配 `headers_encoding` 傳入（requests 是 `"latin-1"`，httpx 和 httpx2 是 `response.headers.encoding`）時，結果也一樣，除非第一行 Content-Disposition 有沒關上的引號、而後面還有另一行 Content-Disposition：接成一行之後，這個引號會延續到下一行，檔名可能把後面的內容吞進去；Chrome 會拒絕的回應，`blocks_download` 也可能是 `False`（見[讀取 Content-Disposition](behavior.md#reading-content-disposition)）。
+requests、httpx 和 httpx2 的 `response.headers` 會用 `, ` 把同一個標頭的好幾行接成一行。搭配 `headers_encoding` 傳入（requests 是 `"latin-1"`，httpx 和 httpx2 是 `response.headers.encoding`）時，結果也一樣，除非最後一行以外的某一行 Content-Disposition 有沒關上的引號：接成一行之後，這個引號會延續到下一行。在第一行時，檔名可能把後面的內容吞進去；在任何一行時，切出來的值都可能改變，`blocks_download` 也跟著改變，不再能說明 Chrome 會不會拒絕這個回應（見[讀取 Content-Disposition](behavior.md#reading-content-disposition)）。
 
 沒有 `headers_encoding` 時，本套件會推測每個字串原本的位元組（見[以字串傳入時](api-reference.md#inputs-as-str)）。函式庫以 Latin-1 解碼的舊式字元集位元組，例如 windows-1252 的 `caf\xe9.txt`，可能推測錯誤，檔名也就可能不同。
 

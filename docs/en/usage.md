@@ -143,10 +143,11 @@ with urllib.request.urlopen(url) as response:
 The `response.headers` of requests, httpx and httpx2 join the lines of a header
 into one, with `, `. Passed with `headers_encoding` (`"latin-1"` for requests,
 `response.headers.encoding` for httpx and httpx2), they give the same result,
-unless the first Content-Disposition line leaves a quote open and another one
-follows. In the joined line, that quote runs on into the next line, so the name
-can take in what follows, and `blocks_download` can be `False` for a response
-that Chrome refuses (see [Reading
+unless a Content-Disposition line other than the last leaves a quote open. In
+the joined line, that quote runs on into the next line. On the first line, the
+name can take in what follows; on any line, the values can change, and
+`blocks_download` with them, so that it no longer tells whether Chrome refuses
+the response (see [Reading
 Content-Disposition](behavior.md#reading-content-disposition)).
 
 Without `headers_encoding`, the package guesses the bytes behind each str (see

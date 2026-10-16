@@ -1,7 +1,9 @@
 """A local HTTP server that sends header lines byte for byte.
 
 It answers /case/<n>/<name> with the header lines added as response n, and
-/redirect/<n>/<name> with a redirect to /case/<n>/<name>.
+/redirect/<n>/download with a redirect to /case/<n>/<name>. The redirect
+changes the last segment of the URL, so that a name taken from the URL
+requested instead of the final one comes out different.
 """
 
 from __future__ import annotations
@@ -10,6 +12,9 @@ import socketserver
 from dataclasses import dataclass
 
 Lines = tuple[tuple[bytes, bytes], ...]
+
+#: The last segment of every URL that redirects.
+REDIRECT_SEGMENT = "download"
 
 
 def sent_lines(lines: Lines) -> list[tuple[bytes, bytes]]:
@@ -26,8 +31,9 @@ class Handler(socketserver.StreamRequestHandler):
             pass
         parts = request_line.split(b" ")
         target = parts[1] if len(parts) > 2 else b"/"
-        _, kind, number, name = [*target.split(b"/", 3), b"", b"", b""][:4]
+        _, kind, number, _ = [*target.split(b"/", 3), b"", b"", b""][:4]
         if kind == b"redirect":
+            name = self.server.names[int(number)]
             self.wfile.write(
                 b"HTTP/1.1 302 Found\r\nLocation: /case/" + number + b"/" + name + b"\r\n"
                 b"Content-Length: 0\r\nConnection: close\r\n\r\n"
@@ -43,6 +49,8 @@ class Server(socketserver.ThreadingTCPServer):
     daemon_threads = True
     allow_reuse_address = True
     responses: dict[int, Lines]
+    #: The last segment of the final URL of each response.
+    names: dict[int, bytes]
 
 
 @dataclass
@@ -55,10 +63,13 @@ class LocalServer:
         """Serve a response with these header lines.
 
         Returns the URL to request and the final URL of the response, which
-        differ when the first one redirects to the second.
+        differ, in their last segment too, when the first one redirects to the
+        second.
         """
+        assert name != REDIRECT_SEGMENT, "a redirect must change the last segment"
         self.count += 1
         self.server.responses[self.count] = lines
+        self.server.names[self.count] = name.encode("ascii")
         final = f"{self.base_url}/case/{self.count}/{name}"
-        start = f"{self.base_url}/redirect/{self.count}/{name}" if redirect else final
+        start = f"{self.base_url}/redirect/{self.count}/{REDIRECT_SEGMENT}" if redirect else final
         return start, final

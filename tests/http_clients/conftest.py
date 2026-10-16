@@ -14,6 +14,7 @@ from .server import Handler, LocalServer, Server
 def server() -> Iterator[LocalServer]:
     with Server(("127.0.0.1", 0), Handler) as httpd:
         httpd.responses = {}
+        httpd.names = {}
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         thread.start()
         host, port = httpd.server_address[:2]

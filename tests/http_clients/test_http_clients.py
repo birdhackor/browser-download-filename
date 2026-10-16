@@ -63,6 +63,12 @@ CASES = (
     # A quote left open runs to the end of its line.
     Case("open-quote", ((CD, b'attachment; filename="a'), (CD, b"attachment; filename=b"))),
     Case("open-quote-on-a-later-line", ((CD, A), (CD, b'attachment; filename="b'), (CD, A))),
+    # Three values that differ, which the quote left open on the second line
+    # joins into two that are the same.
+    Case(
+        "open-quote-joins-later-lines",
+        ((CD, b'attachment; filename="a, b"'), (CD, b'attachment; filename="a'), (CD, b'b"')),
+    ),
     Case("empty-first-line", ((CD, b""), (CD, A))),
     # windows-1252: 0xE9 is é and 0x85 is an ellipsis. As Latin-1, 0x85 is
     # U+0085, which str.splitlines takes for a line break.
@@ -90,6 +96,8 @@ CASES = (
     Case("url-escapes", (), name="r%C3%A9sum%C3%A9.pdf"),
     Case("url-legacy-escape", (), name="caf%E9.txt"),
     Case("redirect", ((CD, A),), redirect=True),
+    # Without Content-Disposition, only the final URL gives the name.
+    Case("redirect-without-content-disposition", (), name="report.pdf", redirect=True),
 )
 
 
@@ -294,14 +302,16 @@ def httpx_headers(url: str) -> Passed:
 
 # response.headers joins the lines of a header into one, with ", ".
 JOINED = {"requests": requests_headers, "httpx2": httpx2_headers, "httpx": httpx_headers}
-# Where that gives another name: the quote left open takes in the next line,
-# and the one value left differs from no other.
+# Where that gives another result: a quote left open on a line takes in the
+# next one. On the first line, that changes the name; on any line, it changes
+# the values, and so blocks_download.
 JOINED_DIFFERENCES = {
     "open-quote": (
         ContentDisposition("attachment", "a, attachment; filename=b"),
         "a, attachment; filename=b",
         "a, attachment; filename=b",
     ),
+    "open-quote-joins-later-lines": (ContentDisposition("attachment", "a, b"), "a, b", "a, b"),
 }
 
 
