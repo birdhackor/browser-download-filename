@@ -16,11 +16,13 @@ from ._bytes import (
     header_bytes,
     is_string_utf8,
     native_multibyte_to_text,
+    require_headers_encoding,
     unescape_binary_url_component,
 )
 from ._charset import decode_strict, require_charset
 from ._content_disposition import _parse
 from ._data import FORMAT_RANGES, MIME_PRIMARY_MAPPINGS, MIME_SECONDARY_MAPPINGS
+from ._headers import CONTENT_DISPOSITION, HEADERS_SHAPE, HeadersLike, header_lines, header_values
 from ._http import first_comma_separated_value
 from ._url import ParsedURL, parse_url
 
@@ -331,22 +333,27 @@ def _uses_windows_rules(platform: Platform | None) -> bool:
     return platform == "windows"
 
 
-def _content_type_text(content_type: str | bytes | None) -> str | None:
-    """The Content-Type as text for the MIME parsing; bytes are read as Latin-1.
+def _content_type_text(content_type: str | bytes | None, encoding: str | None) -> str | None:
+    """The Content-Type as text for the MIME parsing.
 
-    Latin-1 maps every byte to one character, so the type and subtype keep
-    their characters, and any byte outside a token stays outside one.
+    Bytes, and a str encoded back with ``encoding`` (the headers_encoding),
+    are read as Latin-1, which maps every byte to one character: the type and
+    subtype keep their characters, and any byte outside a token stays
+    outside one.
     """
-    if content_type is None or isinstance(content_type, str):
-        return content_type
-    if not isinstance(content_type, (bytes, bytearray, memoryview)):
+    if content_type is None:
+        return None
+    if not isinstance(content_type, (str, bytes, bytearray, memoryview)):
         raise TypeError(
             f"content_type must be str, bytes or None, not {type(content_type).__name__}"
         )
-    return bytes(content_type).decode("latin-1")
+    if isinstance(content_type, str) and encoding is None:
+        return content_type
+    return header_bytes(content_type, encoding).decode("latin-1")
 
 
 def suggested_filename(
+    headers: HeadersLike | None = None,
     *,
     url: str | None = None,
     content_disposition: str | bytes | None = None,
@@ -354,6 +361,7 @@ def suggested_filename(
     download_attribute: str | None = None,
     default_name: str | None = "download",
     fallback_charset: str | None = None,
+    headers_encoding: str | None = None,
     platform: Platform | None = None,
 ) -> str:
     """The filename Chromium suggests for a download. Never empty.
@@ -365,23 +373,29 @@ def suggested_filename(
     None, the URL's host and then ``"download"``), then sanitized for use as
     a file name.
 
-    ``url`` is the final URL of the response, after redirects.
-    ``content_type`` is the response's Content-Type, as str or bytes
-    (parameters are ignored); it only adds or corrects an extension when the
-    name did not come from Content-Disposition. ``fallback_charset`` is as in
-    :func:`parse_content_disposition` and also applies to %-escaped non-UTF-8
-    bytes in the URL. ``platform`` chooses Chromium's rules for Linux, macOS
-    and other POSIX systems (``"posix"``) or for Windows (``"windows"``),
-    which also handles reserved device names, trailing dots and spaces, and
-    shell-integrated extensions; None picks the rules of the system the call
-    runs on.
+    ``headers`` are the response's headers, as a mapping or an iterable of
+    (name, value) pairs; only Content-Disposition is read from them, as the
+    first comma-separated value of its first line. ``content_disposition``,
+    if it is not None, takes the place of every Content-Disposition line in
+    ``headers``, even if it is empty. ``url`` is the final URL of the
+    response, after redirects. ``content_type`` is the response's
+    Content-Type, as str or bytes (parameters are ignored); it only adds or
+    corrects an extension when the name did not come from
+    Content-Disposition. ``fallback_charset`` and ``headers_encoding`` are
+    as in :func:`parse_content_disposition`; ``fallback_charset`` also
+    applies to %-escaped non-UTF-8 bytes in the URL. ``platform`` chooses
+    Chromium's rules for Linux, macOS and other POSIX systems (``"posix"``)
+    or for Windows (``"windows"``), which also handles reserved device
+    names, trailing dots and spaces, and shell-integrated extensions; None
+    picks the rules of the system the call runs on.
     """
     referrer_charset = require_charset(fallback_charset)
+    encoding = require_headers_encoding(headers_encoding)
     windows = _uses_windows_rules(platform)
     for name, value in (("url", url), ("download_attribute", download_attribute)):
         if value is not None and not isinstance(value, str):
             raise TypeError(f"{name} must be str or None, not {type(value).__name__}")
-    mime_type = _content_type_text(content_type)
+    mime_type = _content_type_text(content_type, encoding)
     if default_name is None:
         # Chromium's empty default name: the URL's host, then "download".
         default_name = ""
@@ -389,9 +403,18 @@ def suggested_filename(
         raise TypeError(f"default_name must be str or None, not {type(default_name).__name__}")
     elif not default_name:
         raise ValueError("default_name is empty; pass default_name=None to use the URL's host")
-    content_disposition_filename = None
+    lines: list[tuple[bytes, bytes]] = []
+    if headers is not None:
+        accepted = HEADERS_SHAPE + " or None"
+        lines = header_lines(headers, encoding, argument="headers", accepted=accepted)
     if content_disposition is not None:
-        header = first_comma_separated_value(header_bytes(content_disposition))
+        disposition_lines = [header_bytes(content_disposition, encoding)]
+    else:
+        disposition_lines = header_values(lines, CONTENT_DISPOSITION)
+    content_disposition_filename = None
+    if disposition_lines:
+        # The first value of the first line, which the download code reads.
+        header = first_comma_separated_value(disposition_lines[0])
         content_disposition_filename = _parse(header, referrer_charset).filename
     return _generate(
         parse_url(_scalar_values(url) if url else None),

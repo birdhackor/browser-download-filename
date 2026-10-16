@@ -6,6 +6,7 @@
 
 ```python
 def suggested_filename(
+    headers: HeadersLike | None = None,
     *,
     url: str | None = None,
     content_disposition: str | bytes | None = None,
@@ -13,6 +14,7 @@ def suggested_filename(
     download_attribute: str | None = None,
     default_name: str | None = "download",
     fallback_charset: str | None = None,
+    headers_encoding: str | None = None,
     platform: Literal["posix", "windows"] | None = None,
 ) -> str
 ```
@@ -21,12 +23,14 @@ Chromium 替一次下載建議的檔名（`net::GetSuggestedFilename`），也�
 
 | 參數 | 意義 |
 | --- | --- |
+| `headers` | 回應的標頭（見 [`HeadersLike`](#headerslike)）；沒有時傳 `None`。從中讀取 Content-Disposition：第一行以逗號分隔的第一個值。其他標頭都不讀；Content-Type 請傳給 `content_type`。 |
 | `url` | 回應的最終網址（跟隨重新導向之後）；沒有網址時傳 `None`。只在 Content-Disposition 和 `download_attribute` 都沒有提供檔名時使用：取路徑的最後一段（`about:` 和 `data:` 網址取不到）；取不到而且 `default_name` 是 `None` 時，改用主機名稱。 |
-| `content_disposition` | Content-Disposition 標頭，可以是位元組，或 HTTP 函式庫解碼出的字串；回應沒有這個標頭時傳 `None`。只使用它以逗號分隔的第一個值。 |
+| `content_disposition` | Content-Disposition 標頭，可以是位元組，或 HTTP 函式庫解碼出的字串。預設的 `None` 表示從 `headers` 讀取（有傳的話）。其他任何值都會取代 `headers` 裡所有的 Content-Disposition 行，空字串也一樣：要忽略伺服器給的檔名，就傳 `""`。只使用它以逗號分隔的第一個值。 |
 | `content_type` | 回應的 Content-Type，可以是字串或位元組（位元組以 Latin-1 解讀），參數會被忽略。檔名不是取自 Content-Disposition 時，用它補上或修正副檔名。 |
 | `download_attribute` | `<a download>` 屬性的值。Content-Disposition 沒有提供檔名時使用。 |
 | `default_name` | 沒有任何地方提供檔名時使用的名稱，不能是空字串。若為 `None`，先嘗試網址的主機名稱，最後才用 `download`。 |
 | `fallback_charset` | 用來解碼 `filename` 和網址路徑裡非 UTF-8 原始位元組的字元集；Chrome 在這裡用的是瀏覽器的預設文字編碼。必須是 Chromium 認得的標籤，例如 `"windows-1252"` 或 `"big5"`。 |
+| `headers_encoding` | 你的 HTTP 函式庫把標頭解碼成字串時用的 Python codec，例如 requests 是 `"latin-1"`，httpx 是 `response.headers.encoding`。`headers`、`content_disposition` 和 `content_type` 裡每一個字串形式的標頭值，都用它編碼回位元組；位元組則原樣使用。`None` 表示改用推測的方式還原位元組（見[以字串傳入時](#inputs-as-str)）。這是 Python 的 codec 名稱，不是字元集標籤：這裡的 `"latin-1"` 是 ISO-8859-1，不是 windows-1252。 |
 | `platform` | `"posix"` 採用 Chrome 在 Linux、macOS 等 POSIX 系統上的規則，`"windows"` 採用它在 Windows 上的規則。預設的 `None` 在 Windows 上執行時（`sys.platform == "win32"`）選 `"windows"`，其他系統選 `"posix"`。 |
 
 ## sanitize_filename {#sanitize_filename}
@@ -48,17 +52,34 @@ def sanitize_filename(
 | `default_name` | `name` 沒有提供檔名時使用的名稱，跟 `suggested_filename` 相同。必須是非空字串。 |
 | `platform` | 跟 `suggested_filename` 相同。 |
 
+## HeadersLike {#headerslike}
+
+```python
+HeadersLike = SupportsHeaderItems | Iterable[tuple[str | bytes, HeaderValue]]
+```
+
+回應標頭的型別，涵蓋 HTTP 函式庫保存標頭的各種形狀：
+
+- 有 `items()` 方法的物件（`SupportsHeaderItems`），例如 dict、`urllib.request` 以 `response.headers` 給出的 `http.client.HTTPMessage`，或 requests、httpx 和 aiohttp 的標頭物件；本套件會呼叫 `items()`；
+- 其他情況下，由 `(名稱, 值)` 配對組成的 iterable，例如由 tuple 組成的 list。
+
+名稱是字串或位元組，比對時不分 ASCII 大小寫。值（`HeaderValue`）是字串或位元組，或由它們組成的 list 或 tuple（每個元素是一行標頭，Scrapy 給的就是這種形狀）。標頭行保持原本的順序，重複的行都會算進去。標頭只會被走訪一次，所以 generator 也可以。
+
+字串或位元組不是標頭：`suggested_filename` 收到它會丟出 `TypeError`；單一個 Content-Disposition 值請傳給 `content_disposition`。
+
 ## parse_content_disposition {#parse_content_disposition}
 
 ```python
 def parse_content_disposition(
-    value: str | bytes | None,
+    value: str | bytes | HeadersLike | None,
+    /,
     *,
     fallback_charset: str | None = None,
+    headers_encoding: str | None = None,
 ) -> ContentDisposition
 ```
 
-照 Chromium 的 `net::HttpContentDisposition` 解析 Content-Disposition 標頭。`value` 是位元組形式的標頭，或 HTTP 函式庫解碼出的字串；`None` 代表沒有這個標頭。只使用它以逗號分隔的第一個值。`fallback_charset` 同上。
+照 Chromium 的 `net::HttpContentDisposition` 解析 Content-Disposition。`value` 是單一個標頭，可以是位元組，或 HTTP 函式庫解碼出的字串；也可以是回應的標頭（見 [`HeadersLike`](#headerslike)），這時會讀取其中每一行 Content-Disposition；`None` 代表沒有這個標頭。`type` 和 `filename` 取自第一行以逗號分隔的第一個值，也就是 Chrome 的下載程式碼讀取的那個值；`blocks_download` 則表示 Chrome 會不會拒絕這個回應。`fallback_charset` 和 `headers_encoding` 同上。
 
 ## ContentDisposition {#contentdisposition}
 
@@ -67,6 +88,7 @@ def parse_content_disposition(
 class ContentDisposition:
     type: Literal["inline", "attachment"]
     filename: str | None
+    blocks_download: bool = False
 
     @property
     def is_attachment(self) -> bool: ...
@@ -78,6 +100,7 @@ class ContentDisposition:
 | --- | --- |
 | `type` | `attachment`，以及 Chromium 不認得的其他合法處置類型，都是 `"attachment"`；`inline`、沒有標頭，或標頭不是以合法類型開頭時，是 `"inline"`。 |
 | `filename` | 解碼後的檔名；標頭裡沒有 Chromium 能用的檔名時是 `None`。它沒有經過清洗：可能含有路徑分隔符號、控制字元，以及其他放在檔名裡不安全的字元。 |
+| `blocks_download` | Chrome 是否拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`）：把 Content-Disposition 的值在引號外的逗號處切開、去掉前後的空白和 tab 之後，只要不是每個值都逐位元組相同，就是 `True`。`type` 和 `filename` 仍取自第一個值。見[有多個 Content-Disposition 標頭時](usage.md#several-content-disposition-headers)。 |
 | `is_attachment` | `type` 是否為 `"attachment"`。 |
 
 ## `__version__`
@@ -90,10 +113,16 @@ class ContentDisposition:
 
 | 例外 | 發生時機 |
 | --- | --- |
-| `LookupError` | `fallback_charset` 不是 Chromium 能解碼的字元集，例如 `utf-7`。 |
-| `TypeError` | 標頭或 `content_type` 不是字串、位元組或 `None`；`url`、`download_attribute`、`fallback_charset` 或 `suggested_filename` 的 `default_name` 不是字串或 `None`；或 `name`、`sanitize_filename` 的 `default_name` 不是字串。 |
-| `ValueError` | `platform` 不是 `"posix"`、`"windows"` 或 `None`；或 `default_name` 是空字串。 |
+| `LookupError` | `fallback_charset` 不是 Chromium 能解碼的字元集，例如 `utf-7`；或 `headers_encoding` 不是 Python 的文字 codec，例如 `rot13`。 |
+| `TypeError` | `headers` 是字串或位元組；`headers` 或 `parse_content_disposition` 的 `value` 不是 [`HeadersLike`](#headerslike)：既不是 mapping 也不是 iterable、其中的項目不是 `(名稱, 值)` 配對，或名稱、值是其他型別；標頭的值或 `content_type` 不是字串、位元組或 `None`；`url`、`download_attribute`、`fallback_charset`、`headers_encoding` 或 `suggested_filename` 的 `default_name` 不是字串或 `None`；或 `name`、`sanitize_filename` 的 `default_name` 不是字串。 |
+| `ValueError` | `platform` 不是 `"posix"`、`"windows"` 或 `None`；`default_name` 是空字串；或某個字串形式的標頭值無法用 `headers_encoding` 編碼，這代表標頭不是用這個 codec 解碼的。 |
+
+以上都會在解析任何標頭之前檢查完畢，`headers` 裡的每一個標頭都包括在內。
 
 ## 以字串傳入時 {#inputs-as-str}
 
-Chromium 把標頭當成位元組來讀，所以字串會先轉回位元組。如果每個字元都在 U+0000–U+00FF 之間，而且它們的 Latin-1 位元組是合法的 UTF-8，就使用這些位元組；requests、urllib3、`http.client` 和 WSGI 把帶有 UTF-8 的標頭交給你時，正是這種字串。其他字串一律以 UTF-8 編碼，並把 aiohttp 用來保留無法解碼位元組的 surrogate escape 轉回原本的位元組。網址和其他字串參數則當成文字處理；其中落單的 surrogate 會變成 U+FFFD。
+Chromium 把標頭當成位元組來讀，所以字串會先轉回位元組。有 `headers_encoding` 時，還原是精確的：用那個 codec 編碼字串，並把 surrogate escape 轉回它代表的位元組（`value.encode(headers_encoding, "surrogateescape")`）。
+
+沒有它時，位元組是推測出來的。如果每個字元都在 U+0000–U+00FF 之間，而且它們的 Latin-1 位元組是合法的 UTF-8，就使用這些位元組；requests、urllib3、`http.client` 和 WSGI 把帶有 UTF-8 的標頭交給你時，正是這種字串。其他字串一律以 UTF-8 編碼，並把 aiohttp 用來保留無法解碼位元組的 surrogate escape 轉回原本的位元組。推測可能出錯，例如 HTTP 函式庫以 Latin-1 解碼的舊式字元集位元組，像是 windows-1252 的 `caf\xe9.txt`。
+
+網址和其他字串參數則當成文字處理；其中落單的 surrogate 會變成 U+FFFD。

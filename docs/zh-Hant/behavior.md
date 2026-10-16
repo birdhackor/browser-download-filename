@@ -4,7 +4,7 @@
 
 ## 讀取 Content-Disposition {#reading-content-disposition}
 
-- **只看第一個值。** 標頭會在引號外的逗號處切開，只讀第一段；所以 HTTP 函式庫用 `, ` 接起來的多個標頭，等於只看第一個。切出來的幾段彼此不同時，Chrome 會拒絕整個回應，什麼都不下載。內容不同的重複標頭會這樣，只有一個標頭、但引號外有逗號時也會，例如 `filename=a,b.txt` 或結尾多一個逗號。本套件無法回報這種情況，它會用第一段決定檔名。
+- **只看第一個值。** 每一行 Content-Disposition 都會在引號外的逗號處切開，檔名取自第一行的第一個值；所以重複的標頭不論是分成好幾行，還是被 HTTP 函式庫用 `, ` 接成一行，結果都一樣。只要有任何一個值跟第一個值不同（去掉前後的空白和 tab 之後逐位元組比較），Chrome 就會拒絕整個回應，什麼都不下載；有 `download` 屬性的連結則會開始一個失敗的下載（見[使用方式](usage.md#several-content-disposition-headers)）。內容不同的重複標頭會這樣，只有一個標頭、但引號外有逗號時也會，例如 `filename=a,b.txt` 或結尾多一個逗號。`parse_content_disposition` 用 `blocks_download` 回報這種情況；`suggested_filename` 照樣用第一個值決定檔名。
 - **處置類型。** `inline` 是 inline；`attachment` 和其他任何 token 都是 attachment。不是以 token 開頭的標頭（例如 `filename=report.pdf`）會整個當成參數來讀，類型是 inline，裡面的檔名照樣採用。
 - **參數**由左到右讀，遇到第一個格式錯誤的參數就停止：沒有 `=`、值是空的，或名稱裡有引號。
 - **`filename*` 優先**，不論出現順序，只要能解碼。它的值是 `charset'language'百分比編碼的位元組`（RFC 8187）：語言標記會被忽略；字元集可以是 Chromium 認得的任何一種（`UTF-8`、`ISO-8859-1`、`Shift_JIS`……）；位元組必須是該字元集的合法內容；結果會正規化成 NFC。無法解碼的 `filename*` 會被略過，改用 `filename`。

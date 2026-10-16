@@ -26,8 +26,10 @@ the body.
 
 Chrome takes the name from the first of these that gives one:
 
-1. `content_disposition`, the Content-Disposition header; leave it out or pass
-   `None` when the response has none;
+1. `content_disposition`, the Content-Disposition header, or the
+   Content-Disposition lines in `headers` (see [Several Content-Disposition
+   headers](#several-content-disposition-headers)); leave both out when the
+   response has none;
 2. `download_attribute`, the value of an `<a download>` attribute (see
    [The download attribute](#the-download-attribute));
 3. `url`, the URL: the last segment of its path, percent-decoded, without the
@@ -123,18 +125,46 @@ which is almost always the case: a str of Latin-1 characters whose Latin-1
 bytes are valid UTF-8 is read as those bytes, and any other str is encoded as
 UTF-8. Only a header with bytes in a legacy charset, such as `caf\xe9.txt` in
 Windows-1252, comes out differently from a str, because the str cannot tell
-those bytes apart from text.
+those bytes apart from text. Pass the codec your HTTP library decoded the
+headers with as `headers_encoding`, and a str gives back the bytes exactly (see
+[Inputs as str](api-reference.md#inputs-as-str)).
 
 ### Several Content-Disposition headers
 
-requests, httpx and httpx2 join repeated headers with `, `, and
-`urllib.request` and aiohttp return the first one. Chromium splits the header
-on commas outside quotes and uses the first value, and the package does too.
-If the values differ, Chrome refuses the whole response
-(`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`) and nothing is
-downloaded. That also happens with a single header that has a comma outside
-quotes, such as `attachment; filename=a,b.txt`. The package cannot see what
-your HTTP library dropped, and it always returns a name: here, `a`.
+A response can send Content-Disposition more than once: in several header
+lines, or as values joined with commas in one line. Chromium splits every line
+on commas outside quotes and names the file from the first value. If any value
+differs from the first, Chrome refuses the whole response
+(`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`). That also happens with a
+single header that has a comma outside quotes, such as
+`attachment; filename=a,b.txt`.
+
+The package sees every value only when you give it the whole headers. For one
+name, requests, httpx and httpx2 return repeated headers joined with `, `, but
+`urllib.request` and aiohttp return only the first one. Pass `response.headers`
+to `suggested_filename`, as its first argument, or to
+`parse_content_disposition`, whose `blocks_download` tells you whether Chrome
+refuses the response:
+
+```pycon
+>>> headers = [
+...     ("Content-Disposition", 'attachment; filename="a.pdf"'),
+...     ("Content-Disposition", 'attachment; filename="b.pdf"'),
+... ]
+>>> parse_content_disposition(headers)
+ContentDisposition(type='attachment', filename='a.pdf', blocks_download=True)
+>>> suggested_filename(headers, url="https://example.com/get")
+'a.pdf'
+>>> parse_content_disposition("attachment; filename=a,b.txt")
+ContentDisposition(type='attachment', filename='a', blocks_download=True)
+```
+
+When Chrome refuses a response, a plain link to it downloads nothing: Chrome
+shows an error page instead. A link with a `download` attribute still starts a
+download, which fails; Chrome names it from the attribute or the URL, without
+the Content-Disposition and the Content-Type of the response.
+`suggested_filename` does not model the refusal: it names the file from the
+first value all the same, `a.pdf` above.
 
 ## Add an extension from the Content-Type
 
@@ -296,9 +326,9 @@ without the rest of the naming:
 >>> cd.filename
 '../../etc/passwd'
 >>> parse_content_disposition("inline")
-ContentDisposition(type='inline', filename=None)
+ContentDisposition(type='inline', filename=None, blocks_download=False)
 >>> parse_content_disposition(None)
-ContentDisposition(type='inline', filename=None)
+ContentDisposition(type='inline', filename=None, blocks_download=False)
 ```
 
 The file name is decoded but not sanitized: it can contain path separators,

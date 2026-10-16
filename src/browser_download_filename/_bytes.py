@@ -6,6 +6,7 @@ see THIRD-PARTY-LICENSES).
 
 from __future__ import annotations
 
+import codecs
 import re
 
 # Unicode noncharacters: U+FDD0..U+FDEF and the last two code points of every
@@ -66,15 +67,36 @@ def is_token(data: bytes) -> bool:
     return _TOKEN.fullmatch(data) is not None
 
 
-def header_bytes(value: str | bytes) -> bytes:
+def require_headers_encoding(name: str | None) -> str | None:
+    """Check a headers_encoding: the name of a Python text codec, or None.
+
+    LookupError is raised for a name that codecs.lookup does not know, and
+    for a codec that does not turn str into bytes, such as rot13.
+    """
+    if name is None:
+        return None
+    if not isinstance(name, str):
+        raise TypeError(f"headers_encoding must be str or None, not {type(name).__name__}")
+    codecs.lookup(name)
+    "".encode(name)
+    return name
+
+
+def header_bytes(value: str | bytes | bytearray | memoryview, encoding: str | None = None) -> bytes:
     """The bytes a header value had on the wire.
 
-    Chromium parses raw header bytes. A str is mapped back to bytes like this:
-    if every character is in U+0000-U+00FF and the Latin-1 encoding is valid
-    UTF-8, those Latin-1 bytes are used; that is how http.client, urllib3,
-    requests and WSGI hand over a header that carried UTF-8. Any other str is
-    treated as text and encoded as UTF-8, with surrogate escapes (aiohttp)
-    turned back into the bytes they stand for.
+    Chromium parses raw header bytes, and bytes are used as they are. A str
+    is encoded back with ``encoding``, the codec the HTTP library decoded the
+    headers with, if there is one, surrogate escapes included; ValueError
+    means that the str does not encode with it, so the codec is not the one
+    the str was decoded with.
+
+    Without an encoding, a str is mapped back to bytes like this: if every
+    character is in U+0000-U+00FF and the Latin-1 encoding is valid UTF-8,
+    those Latin-1 bytes are used; that is how http.client, urllib3, requests
+    and WSGI hand over a header that carried UTF-8. Any other str is treated
+    as text and encoded as UTF-8, with surrogate escapes (aiohttp) turned
+    back into the bytes they stand for.
     """
     if not isinstance(value, str):
         # bytes() would also take an int and make that many NUL bytes.
@@ -83,6 +105,14 @@ def header_bytes(value: str | bytes) -> bytes:
                 f"a header value must be str, bytes or None, not {type(value).__name__}"
             )
         return bytes(value)
+    if encoding is not None:
+        try:
+            return value.encode(encoding, "surrogateescape")
+        except UnicodeError as error:
+            raise ValueError(
+                f"a header value does not encode with headers_encoding={encoding!r}, so the "
+                f"headers were not decoded with it: {error}"
+            ) from error
     try:
         latin1 = value.encode("latin-1")
     except UnicodeEncodeError:

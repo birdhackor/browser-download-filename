@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from browser_download_filename import suggested_filename
-from browser_download_filename._http import comma_separated_values
+from browser_download_filename import parse_content_disposition, suggested_filename
 
 from .conftest import BrowserSession, Report
 from .corpus import BrowserCase, all_cases
@@ -20,16 +19,20 @@ CASES = all_cases()
 
 def chromium_expectation(case: BrowserCase, url: str) -> str | None:
     """What Chromium reports, per this package's model of it."""
-    values = [value for header in case.headers for value in comma_separated_values(header)]
-    if len(set(values)) > 1:
+    headers = [(b"Content-Disposition", value) for value in case.headers]
+    if parse_content_disposition(headers).blocks_download:
         # net::ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION: the network
-        # stack refuses the response, so nothing is downloaded.
-        return None
-    # The download code passes on the first value only
-    # (HttpResponseHeaders::EnumerateHeader).
+        # stack refuses the response. A plain link downloads nothing; a link
+        # with a download attribute starts a download that fails, named as if
+        # the response had neither Content-Disposition nor a Content-Type.
+        if case.download_attribute is None:
+            return None
+        return suggested_filename(
+            url=url, download_attribute=case.download_attribute, platform="posix"
+        )
     return suggested_filename(
+        headers,
         url=url,
-        content_disposition=values[0] if values else None,
         content_type=case.content_type,
         download_attribute=case.download_attribute,
         # The package models Chrome on Linux, where CI runs this comparison.

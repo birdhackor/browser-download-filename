@@ -76,10 +76,13 @@ def test_headers_without_usable_filename(header: bytes) -> None:
 def test_unquoted_comma_ends_the_value() -> None:
     # Chromium refuses such a response outright (the two values differ); the
     # parser, like HttpContentDisposition, reads the first value.
-    assert parse_content_disposition(b"attachment; filename=Report, Final.pdf").filename == "Report"
-    assert parse_content_disposition(b'attachment; filename="Report, Final.pdf"').filename == (
-        "Report, Final.pdf"
+    unquoted = parse_content_disposition(b"attachment; filename=Report, Final.pdf")
+    assert unquoted == ContentDisposition("attachment", "Report", blocks_download=True)
+    assert suggested_filename(content_disposition=b"attachment; filename=Report, Final.pdf") == (
+        "Report"
     )
+    quoted = parse_content_disposition(b'attachment; filename="Report, Final.pdf"')
+    assert quoted == ContentDisposition("attachment", "Report, Final.pdf")
 
 
 def test_disposition_types() -> None:
@@ -89,7 +92,9 @@ def test_disposition_types() -> None:
     )
     assert parse_content_disposition("form-data").is_attachment
     assert not parse_content_disposition("filename=a.txt").is_attachment
-    assert parse_content_disposition("attachment, inline").type == "attachment"
+    assert parse_content_disposition("attachment, inline") == ContentDisposition(
+        "attachment", None, blocks_download=True
+    )
 
 
 def test_filename_is_not_sanitized() -> None:

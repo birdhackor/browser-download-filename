@@ -36,11 +36,11 @@ python -m pip install browser-download-filename
 
 | 函式 | 用途 |
 | --- | --- |
-| `suggested_filename(url=..., content_disposition=..., ...)` | Chrome 替一次下載取的檔名：依序從 Content-Disposition、`<a download>` 的值、網址或預設名取得，再清洗。選用參數可以加上 Chrome 依 MIME 類型補副檔名的規則，以及選擇它在 Windows 或 POSIX 上的規則。 |
+| `suggested_filename(headers, url=..., ...)` | Chrome 替一次下載取的檔名：依序從 Content-Disposition、`<a download>` 的值、網址或預設名取得，再清洗。Content-Disposition 取自回應的標頭或 `content_disposition=`。選用參數可以加上 Chrome 依 MIME 類型補副檔名的規則，以及選擇它在 Windows 或 POSIX 上的規則。 |
 | `sanitize_filename(name)` | 把 Chrome 的清洗規則套用在任何來源的名稱上，例如網頁標題或使用者輸入，清洗方式跟 Chrome 清洗 `<a download>` 的值相同。 |
-| `parse_content_disposition(value)` | 照 Chromium 的方式讀出標頭的處置類型和解碼後的檔名，不做清洗。 |
+| `parse_content_disposition(value)` | 照 Chromium 的方式讀出標頭的處置類型和解碼後的檔名，不做清洗；也告訴你 Chrome 會不會因為 Content-Disposition 的值彼此不同而拒絕這個回應。 |
 
-`suggested_filename` 和 `parse_content_disposition` 都可以傳入位元組（bytes）或字串（str）形式的標頭，遇到格式錯誤的標頭不會丟出例外。本套件除了標準庫之外沒有任何相依套件，支援 CPython 3.11 以上和 PyPy。
+`suggested_filename` 和 `parse_content_disposition` 都可以傳入回應的整組標頭，或單一個位元組（bytes）或字串（str）形式的標頭，遇到格式錯誤的標頭不會丟出例外。本套件除了標準庫之外沒有任何相依套件，支援 CPython 3.11 以上和 PyPy。
 
 ## 有多精確 {#how-exact-it-is}
 

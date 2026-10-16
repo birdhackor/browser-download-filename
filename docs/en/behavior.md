@@ -5,13 +5,18 @@ Chrome does beyond them, and where Firefox and Safari name files differently.
 
 ## Reading Content-Disposition
 
-- **First value only.** The header is split on commas outside quoted strings
-  and only the first part is read, so values that an HTTP library joined with
-  `, ` count as the first header. When the parts differ, Chrome refuses the
-  response and downloads nothing. That happens with repeated headers that
-  differ, and also with a single header that has a comma outside quotes, such
-  as `filename=a,b.txt` or a trailing comma. The package cannot report that;
-  it names the file from the first part.
+- **First value only.** Every Content-Disposition line is split on commas
+  outside quoted strings, and the file is named from the first value of the
+  first line, so it makes no difference whether repeated headers come as
+  several lines or joined with `, ` by an HTTP library. When any value differs
+  from the first, byte for byte once the spaces and tabs around it are trimmed,
+  Chrome refuses the response and downloads nothing; a link with a `download`
+  attribute starts a download that fails instead (see
+  [Usage](usage.md#several-content-disposition-headers)). That happens with
+  repeated headers that differ, and also with a single header that has a comma
+  outside quotes, such as `filename=a,b.txt` or a trailing comma.
+  `parse_content_disposition` reports it as `blocks_download`;
+  `suggested_filename` names the file from the first value all the same.
 - **Disposition type.** `inline` is inline; `attachment` and any other token
   are attachment. A header that does not start with a token, such as
   `filename=report.pdf`, is read as parameters with the type inline, and its

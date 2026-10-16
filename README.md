@@ -54,7 +54,7 @@ pip install browser-download-filename      # or: uv add browser-download-filenam
 >>> suggested_filename(url="https://example.com/files/r%C3%A9sum%C3%A9.pdf")
 'résumé.pdf'
 >>> parse_content_disposition('attachment; filename="a;b;c.txt";')
-ContentDisposition(type='attachment', filename='a;b;c.txt')
+ContentDisposition(type='attachment', filename='a;b;c.txt', blocks_download=False)
 ```
 
 `suggested_filename` downloads nothing: it takes the final URL of a response

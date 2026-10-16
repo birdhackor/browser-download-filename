@@ -23,7 +23,7 @@
 
 Chrome 依下列順序，採用第一個提供檔名的來源：
 
-1. `content_disposition`，也就是 Content-Disposition 標頭；回應沒有這個標頭時，省略它或傳入 `None`；
+1. `content_disposition`，也就是 Content-Disposition 標頭，或 `headers` 裡的 Content-Disposition 行（見[有多個 Content-Disposition 標頭時](#several-content-disposition-headers)）；回應沒有這個標頭時，兩者都省略；
 2. `download_attribute`，也就是 `<a download>` 屬性的值（見 [download 屬性](#the-download-attribute)）；
 3. `url`，也就是網址：取路徑的最後一段，解開百分比編碼，不含查詢字串（`about:` 和 `data:` 網址取不到檔名）；
 4. `default_name`，沒有另外指定時是 `download`（見 [預設檔名](#the-default-name)）。
@@ -90,11 +90,28 @@ async with session.get(url) as response:
     )
 ```
 
-在其他情況下傳字串也可以，只要標頭是 ASCII 或 UTF-8，而絕大多數標頭都是：如果字串裡全是 Latin-1 字元，而且這些字元的 Latin-1 位元組是合法的 UTF-8，就當成那些位元組來讀；其他字串則以 UTF-8 編碼。只有含舊式字元集位元組的標頭（例如 Windows-1252 的 `caf\xe9.txt`）從字串傳入時結果會不同，因為字串無法分辨那些位元組和一般文字。
+在其他情況下傳字串也可以，只要標頭是 ASCII 或 UTF-8，而絕大多數標頭都是：如果字串裡全是 Latin-1 字元，而且這些字元的 Latin-1 位元組是合法的 UTF-8，就當成那些位元組來讀；其他字串則以 UTF-8 編碼。只有含舊式字元集位元組的標頭（例如 Windows-1252 的 `caf\xe9.txt`）從字串傳入時結果會不同，因為字串無法分辨那些位元組和一般文字。把你的 HTTP 函式庫解碼標頭時用的 codec 傳給 `headers_encoding`，字串就能精確還原成原本的位元組（見[以字串傳入時](api-reference.md#inputs-as-str)）。
 
 ### 有多個 Content-Disposition 標頭時 {#several-content-disposition-headers}
 
-requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.request` 和 aiohttp 則只回傳第一個。Chromium 會在引號外的逗號處切開標頭、只用第一個值，本套件也一樣。如果這些值彼此不同，Chrome 會拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`），什麼都不下載。只有一個標頭、但引號外有逗號時也會這樣，例如 `attachment; filename=a,b.txt`。本套件看不到 HTTP 函式庫丟掉的部分，而且一定會回傳檔名：這個例子是 `a`。
+一個回應可能送出不只一次 Content-Disposition：分成好幾行標頭，或在同一行裡用逗號接起好幾個值。Chromium 會在引號外的逗號處切開每一行，用第一個值決定檔名。只要有任何一個值跟第一個值不同，Chrome 就會拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`）。只有一個標頭、但引號外有逗號時也會這樣，例如 `attachment; filename=a,b.txt`。
+
+把整組標頭交給本套件，它才看得到所有的值。依名稱取標頭時，requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.request` 和 aiohttp 則只回傳第一個。把 `response.headers` 當成 `suggested_filename` 的第一個引數傳入，或傳給 `parse_content_disposition`；後者的 `blocks_download` 會告訴你 Chrome 會不會拒絕這個回應：
+
+```pycon
+>>> headers = [
+...     ("Content-Disposition", 'attachment; filename="a.pdf"'),
+...     ("Content-Disposition", 'attachment; filename="b.pdf"'),
+... ]
+>>> parse_content_disposition(headers)
+ContentDisposition(type='attachment', filename='a.pdf', blocks_download=True)
+>>> suggested_filename(headers, url="https://example.com/get")
+'a.pdf'
+>>> parse_content_disposition("attachment; filename=a,b.txt")
+ContentDisposition(type='attachment', filename='a', blocks_download=True)
+```
+
+Chrome 拒絕一個回應時，指向它的一般連結什麼都不會下載：Chrome 改為顯示錯誤頁面。有 `download` 屬性的連結則仍會開始一個下載，而這個下載會失敗；Chrome 給它的名字取自該屬性或網址，不看回應的 Content-Disposition 和 Content-Type。`suggested_filename` 不模擬這種拒絕：它照樣用第一個值決定檔名，上面的例子是 `a.pdf`。
 
 ## 依 Content-Type 補副檔名 {#add-an-extension-from-the-content-type}
 
@@ -221,9 +238,9 @@ requests、httpx 和 httpx2 會用 `, ` 把重複的標頭接起來，`urllib.re
 >>> cd.filename
 '../../etc/passwd'
 >>> parse_content_disposition("inline")
-ContentDisposition(type='inline', filename=None)
+ContentDisposition(type='inline', filename=None, blocks_download=False)
 >>> parse_content_disposition(None)
-ContentDisposition(type='inline', filename=None)
+ContentDisposition(type='inline', filename=None, blocks_download=False)
 ```
 
 這裡的檔名已經解碼，但沒有清洗：它可能含有路徑分隔符號、控制字元，以及伺服器送來的任何東西。絕對不要直接拿它當路徑；要存檔用的檔名，請用 `suggested_filename`。`inline` 和 `attachment` 以外的處置類型都算 `attachment`，跟 Chromium 一樣。

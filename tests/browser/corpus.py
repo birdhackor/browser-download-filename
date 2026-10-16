@@ -278,9 +278,32 @@ HEADER_LINE_CASES: list[BrowserCase] = [
     BrowserCase(
         "duplicate-different", (b'attachment; filename="a.txt"', b'attachment; filename="b.txt"')
     ),
+    BrowserCase(
+        "duplicate-different-case",
+        (b'attachment; filename="a.txt"', b'ATTACHMENT; FILENAME="A.TXT"'),
+    ),
+    BrowserCase("duplicate-empty-line", (b'attachment; filename="a.txt"', b"")),
+    # Chromium refuses these responses, but a link with a download attribute
+    # still starts a download. The page and the MIME type tell whether its
+    # name used the Content-Type ("page.html") or not ("page").
+    BrowserCase(
+        "duplicate-different-download-attribute",
+        (b'attachment; filename="a.txt"', b'attachment; filename="b.txt"'),
+        path="page",
+        content_type="text/html",
+        download_attribute="saved",
+    ),
+    BrowserCase(
+        "duplicate-different-empty-download-attribute",
+        (b'attachment; filename="a.txt"', b'attachment; filename="b.txt"'),
+        path="page",
+        content_type="text/html",
+        download_attribute="",
+    ),
     BrowserCase("comma-unquoted", (b"attachment; filename=a,b.txt",)),
     BrowserCase("comma-quoted", (b'attachment; filename="a,b.txt"',)),
     BrowserCase("comma-trailing", (b'attachment; filename="a.txt",',)),
+    BrowserCase("comma-after-type", (b"attachment,",)),
     BrowserCase("comma-identical-values", (b"attachment, attachment",)),
     BrowserCase("comma-in-ext-value", (b"attachment; filename*=UTF-8''a%2Cb.txt",)),
     BrowserCase("empty-header", (b"",)),

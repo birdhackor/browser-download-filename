@@ -23,6 +23,12 @@ PIECES = st.sampled_from(
     ]
 )  # fmt: skip
 HEADERS = st.one_of(st.binary(max_size=200), st.lists(PIECES, max_size=30).map(b"".join))
+# The Content-Disposition lines of one response. Lines that name a file mix
+# in, so that lines naming different files come up often.
+NAMED = st.sampled_from([b"a.txt", b"b.pdf", b"c"]).map(
+    lambda name: b"attachment; filename=" + name
+)
+LINES = st.lists(st.one_of(HEADERS, NAMED), max_size=4)
 TEXT = st.text(max_size=80)
 PLATFORMS = st.sampled_from(["posix", "windows"])
 
@@ -40,6 +46,37 @@ def test_parse_never_raises(header: bytes) -> None:
 @given(st.text(max_size=120))
 def test_parse_accepts_any_str(header: str) -> None:
     parse_content_disposition(header)
+
+
+@settings(max_examples=300)
+@given(LINES, TEXT, PLATFORMS)
+def test_the_first_line_names_the_file(lines: list[bytes], path: str, platform: str) -> None:
+    url = "https://example.com/" + path
+    headers = [("Content-Disposition", line) for line in lines]
+    assert suggested_filename(
+        headers,
+        url=url,
+        platform=platform,  # type: ignore[arg-type]
+    ) == suggested_filename(
+        url=url,
+        content_disposition=lines[0] if lines else None,
+        platform=platform,  # type: ignore[arg-type]
+    )
+
+
+@settings(max_examples=300)
+@given(LINES)
+def test_parse_reads_the_first_line(lines: list[bytes]) -> None:
+    parsed = parse_content_disposition([("Content-Disposition", line) for line in lines])
+    first = parse_content_disposition(lines[0] if lines else None)
+    assert (parsed.type, parsed.filename) == (first.type, first.filename)
+
+
+@settings(max_examples=300)
+@given(HEADERS, st.integers(min_value=1, max_value=3))
+def test_repeating_a_line_changes_nothing(line: bytes, count: int) -> None:
+    headers = [("Content-Disposition", line)] * count
+    assert parse_content_disposition(headers) == parse_content_disposition(line)
 
 
 def _assert_safe(name: str) -> None:
@@ -130,3 +167,15 @@ def test_large_adversarial_inputs_are_fast() -> None:
         started = time.perf_counter()
         suggested_filename(url="https://example.com/x", content_disposition=header)
         assert time.perf_counter() - started < 2.0
+    # parse_content_disposition also splits every value, to compare them. The
+    # inputs are long enough that copying the rest of the header for each
+    # value would take too long.
+    for header in [*inputs, b"attachment" + b"," * 500_000, b'"a",' * 125_000]:
+        started = time.perf_counter()
+        parse_content_disposition(header)
+        assert time.perf_counter() - started < 2.0
+    lines = [("Content-Disposition", b"attachment")] * 20_000 + [("Content-Disposition", b"x")]
+    started = time.perf_counter()
+    assert parse_content_disposition(lines).blocks_download
+    assert suggested_filename(lines) == "download"
+    assert time.perf_counter() - started < 2.0
