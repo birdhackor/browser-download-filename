@@ -1,9 +1,19 @@
 """Cases for the browser differential tests.
 
-Each case is one HTTP response: zero or more raw Content-Disposition header
-lines, a Content-Type, the URL path it is served under, and optionally the
-<a download> attribute of the link that is clicked. Together they cover every
-branch of the parser and of the filename generation that a browser can reach.
+Each case is one HTTP response: its header lines, its body, the URL path it
+is served under, and optionally the <a download> attribute of the link that
+is clicked. Most cases send a Content-Type, X-Content-Type-Options: nosniff,
+zero or more raw Content-Disposition lines and a binary body; the cases about
+the MIME type list their header lines and body themselves. Together they
+cover every branch of the parser and of the filename generation that a
+browser can reach.
+
+The cases come in two sets, and each case says which one it is in. In the
+exact set, the headers and the URL decide the name, and Chromium must give
+the package's name. The limited set (LimitedCase) holds responses whose body
+Chromium sniffs for a MIME type, which the package never sees: each case
+lists the name the package gives for its headers and URL, and the name
+Chromium gives with its body.
 """
 
 from __future__ import annotations
@@ -21,17 +31,79 @@ from ..test_chromium_content_disposition import (
     TC2231_CASES,
 )
 
+HeaderLines = tuple[tuple[bytes, bytes], ...]
+
+BINARY_BODY = bytes(range(256)) * 4
+HTML_BODY = b"<html><body>hello</body></html>" + b" " * 600
+TEXT_BODY = b"hello, world\n" * 20
+GIF_BODY = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00"
+    b",\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+)
+PNG_BODY = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+    b"\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+_DEFAULT_CONTENT_TYPE = "application/octet-stream"
+NOSNIFF = (b"X-Content-Type-Options", b"nosniff")
+ATTACHMENT = (b"Content-Disposition", b"attachment")
+
 
 @dataclass(frozen=True)
 class BrowserCase:
     id: str
     #: Raw Content-Disposition values, one per header line.
-    headers: tuple[bytes, ...] = ()
+    content_disposition: tuple[bytes, ...] = ()
     #: The URL path below /case/<n>/, query included.
     path: str = "file.bin"
-    content_type: str = "application/octet-stream"
+    content_type: str = _DEFAULT_CONTENT_TYPE
     #: The link's download attribute; None leaves it out.
     download_attribute: str | None = None
+    #: Every header line of the response, in order, as raw (name, value)
+    #: pairs, in place of the ones built from content_type and
+    #: content_disposition (see response_headers).
+    header_lines: HeaderLines | None = None
+    body: bytes = BINARY_BODY
+
+    def __post_init__(self) -> None:
+        if self.header_lines is not None and (
+            self.content_disposition or self.content_type != _DEFAULT_CONTENT_TYPE
+        ):
+            raise ValueError(
+                f"{self.id}: give header_lines, or content_type and content_disposition, not both"
+            )
+
+    @property
+    def response_headers(self) -> HeaderLines:
+        """The header lines the server sends, in order.
+
+        Unless the case lists them, they are its Content-Type,
+        X-Content-Type-Options: nosniff, and a Content-Disposition line for
+        each of its values.
+        """
+        if self.header_lines is not None:
+            return self.header_lines
+        return (
+            (b"Content-Type", self.content_type.encode("latin-1")),
+            NOSNIFF,
+            *((b"Content-Disposition", value) for value in self.content_disposition),
+        )
+
+
+@dataclass(frozen=True)
+class LimitedCase(BrowserCase):
+    """A response whose body Chromium sniffs for the MIME type."""
+
+    #: The name the package gives, for any body with these headers and URL.
+    fallback: str = ""
+    #: The name Chromium gives with this body.
+    chromium: str = ""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not self.fallback or not self.chromium:
+            raise ValueError(f"{self.id}: list the package's name and Chromium's")
 
 
 def _attachment(value: bytes, case_id: str) -> BrowserCase:
@@ -42,8 +114,15 @@ def _quote(data: bytes) -> str:
     return urllib.parse.quote_from_bytes(data, safe="")
 
 
-def _sendable(header: bytes) -> bool:
-    # Line breaks would end the header line, and HTTP has no room for NUL.
+def _unit_test_header_fits_one_line(header: bytes) -> bool:
+    """Whether a header from Chromium's unit tests goes into the corpus.
+
+    They are imported without review, and on the wire a CR, a LF or a NUL in
+    one would take the case past what the unit test checks: a line break can
+    start another header line, which the package does not read as one, and
+    a NUL makes Chromium refuse the response. Cases with them are listed by
+    hand instead (RAW_LINE_CASES).
+    """
     return not any(byte in header for byte in b"\r\n\0")
 
 
@@ -52,7 +131,7 @@ def chromium_unit_test_cases() -> list[BrowserCase]:
     headers = [header for header, charset, _ in FILENAME_CASES if not charset]
     headers += [header for header, _, _ in TC2231_CASES]
     headers += [header for header, _ in PARSE_RESULT_CASES if header]
-    unique = list(dict.fromkeys(header for header in headers if _sendable(header)))
+    unique = list(dict.fromkeys(filter(_unit_test_header_fits_one_line, headers)))
     return [
         BrowserCase(f"chromium-unittest-{index}", (header,)) for index, header in enumerate(unique)
     ]
@@ -256,6 +335,82 @@ MIME_CASES: list[BrowserCase] = [
     ),
 ]
 
+
+def _probe(case_id: str, *lines: tuple[bytes, bytes]) -> BrowserCase:
+    """An attachment at /probe, a name without an extension, with these headers."""
+    return BrowserCase(case_id, path="probe", header_lines=(*lines, ATTACHMENT))
+
+
+# How the network stack reads the Content-Type lines. With nosniff, the MIME
+# type is the one they give, or text/plain if they give none.
+CONTENT_TYPE_CASES: list[BrowserCase] = [
+    _probe(f"content-type-{case_id}", *((b"Content-Type", value) for value in values), NOSNIFF)
+    for case_id, values in [
+        ("plain", [b"text/html"]),
+        ("uppercase", [b"TEXT/HTML"]),
+        ("parameters", [b"text/html; charset=utf-8"]),
+        ("comment", [b"text/html(comment)"]),
+        ("absent", []),
+        ("empty", [b""]),
+        ("star-star", [b"*/*"]),
+        ("star-star-parameter", [b"*/*; charset=utf-8"]),
+        ("no-slash", [b"text"]),
+        ("slash-at-end", [b"text/"]),
+        ("slash-at-start", [b"/plain"]),
+        ("space-before-slash", [b"text /html"]),
+        ("space-after-slash", [b"text/ html"]),
+        ("quoted-type", [b'"text/html"']),
+        ("three-parts", [b"text/html/x"]),
+        ("non-ascii", [b"t\xc3\xabxt/html"]),
+        ("paren-first", [b"(text/html)"]),
+        ("semicolon-first", [b";text/html"]),
+        ("quoted-comma", [b'text/plain; charset="a,b"']),
+        ("unquoted-comma", [b"text/plain; charset=a,b"]),
+        ("comma-two", [b"text/plain, text/html"]),
+        ("comma-then-invalid", [b"text/html, bogus"]),
+        ("comma-then-star-star", [b"text/html, */*"]),
+        ("comma-then-star-star-parameter", [b"text/html, */*;q=1"]),
+        ("comma-trailing", [b"text/html,"]),
+        ("comma-then-slash-at-end", [b"image/png, text/"]),
+        ("comma-same-type", [b"text/html, TEXT/HTML"]),
+        ("feed-rss", [b"application/rss+xml"]),
+        ("feed-atom-parameters", [b"application/atom+xml; charset=utf-8"]),
+        ("lines-two", [b"text/plain", b"text/html"]),
+        ("lines-then-empty", [b"text/html", b""]),
+        ("lines-then-invalid", [b"text/html", b"bogus"]),
+        ("lines-then-star-star", [b"text/html", b"*/*"]),
+        ("lines-open-quote", [b'text/plain; charset="a', b"text/html"]),
+        ("lines-quote-spans", [b'text/plain; charset="a', b'x", text/html']),
+        ("lines-open-quote-type", [b'"text/html', b"image/png"]),
+        ("lines-comma-then-line", [b"image/png, text/css", b"text/html"]),
+    ]
+] + [
+    _probe(
+        "content-type-lines-name-case",
+        (b"content-type", b"text/plain"),
+        (b"CONTENT-TYPE", b"image/png"),
+        NOSNIFF,
+    ),
+    # Types that Chrome does not sniff, without nosniff.
+    _probe("content-type-html-without-nosniff", (b"Content-Type", b"text/html")),
+    _probe("content-type-feed-without-nosniff", (b"Content-Type", b"application/rss+xml")),
+]
+
+# X-Content-Type-Options that stops the sniffing, so that no Content-Type
+# means text/plain.
+NOSNIFF_CASES: list[BrowserCase] = [
+    _probe(f"nosniff-{case_id}", *((b"X-Content-Type-Options", value) for value in values))
+    for case_id, values in [
+        ("uppercase", [b"NOSNIFF"]),
+        ("mixed-case", [b"NoSniff"]),
+        ("spaces-around", [b"\t nosniff \t"]),
+        ("first-value", [b"nosniff, bogus"]),
+        ("trailing-comma", [b"nosniff,"]),
+        ("first-line", [b"nosniff", b"bogus"]),
+        ("repeated", [b"nosniff", b"nosniff"]),
+    ]
+]
+
 DOWNLOAD_ATTRIBUTE_CASES: list[BrowserCase] = [
     BrowserCase("attr-named", download_attribute="named.txt"),
     BrowserCase(
@@ -278,12 +433,144 @@ HEADER_LINE_CASES: list[BrowserCase] = [
     BrowserCase(
         "duplicate-different", (b'attachment; filename="a.txt"', b'attachment; filename="b.txt"')
     ),
+    BrowserCase(
+        "duplicate-different-case",
+        (b'attachment; filename="a.txt"', b'ATTACHMENT; FILENAME="A.TXT"'),
+    ),
+    BrowserCase("duplicate-empty-line", (b'attachment; filename="a.txt"', b"")),
+    # Chromium refuses these responses, but a link with a download attribute
+    # still starts a download. The page and the MIME type tell whether its
+    # name used the Content-Type ("page.html") or not ("page").
+    BrowserCase(
+        "duplicate-different-download-attribute",
+        (b'attachment; filename="a.txt"', b'attachment; filename="b.txt"'),
+        path="page",
+        content_type="text/html",
+        download_attribute="saved",
+    ),
+    BrowserCase(
+        "duplicate-different-empty-download-attribute",
+        (b'attachment; filename="a.txt"', b'attachment; filename="b.txt"'),
+        path="page",
+        content_type="text/html",
+        download_attribute="",
+    ),
     BrowserCase("comma-unquoted", (b"attachment; filename=a,b.txt",)),
     BrowserCase("comma-quoted", (b'attachment; filename="a,b.txt"',)),
     BrowserCase("comma-trailing", (b'attachment; filename="a.txt",',)),
+    BrowserCase("comma-after-type", (b"attachment,",)),
     BrowserCase("comma-identical-values", (b"attachment, attachment",)),
     BrowserCase("comma-in-ext-value", (b"attachment; filename*=UTF-8''a%2Cb.txt",)),
     BrowserCase("empty-header", (b"",)),
+]
+
+_OCTET_STREAM = (b"Content-Type", b"application/octet-stream")
+
+# Line breaks, blank lines and NUL in the values the server sends. Chromium
+# reads the header lines they make on the wire.
+RAW_LINE_CASES: list[BrowserCase] = [
+    # A line that starts with a space or a tab continues the header: it is
+    # joined on with one space.
+    _attachment(b"attachment;\r\n filename=wire.pdf", "folded"),
+    _attachment(b"attachment;\r\n\t filename=wire.pdf", "folded-with-a-tab"),
+    _attachment(b"attachment;\n filename=wire.pdf", "folded-with-lf"),
+    _attachment(b"attachment;\r filename=wire.pdf", "folded-with-a-lone-cr"),
+    _attachment(b"\r\n attachment; filename=wire.pdf", "folded-onto-an-empty-line"),
+    _attachment(b'attachment; filename="wire\r\n\t file.pdf"', "folded-in-quotes"),
+    _attachment(b'attachment; filename="wire\r\n   file.pdf"', "folded-in-quotes-after-spaces"),
+    # The spaces and tabs before the line break stay.
+    _attachment(b'attachment; filename="a \r\n b.pdf"', "folded-after-a-space-in-quotes"),
+    _attachment(b'attachment; filename="a\t\r\n\tb.pdf"', "folded-after-a-tab-in-quotes"),
+    _attachment(
+        b'attachment; filename="a\r\n b \r\n c.pdf"', "folded-twice-after-a-space-in-quotes"
+    ),
+    # Each line of spaces and tabs adds one space.
+    _attachment(b'attachment; filename="a\r\n   \r\n\t\r\n  b.pdf"', "folded-lines-of-spaces"),
+    # Two CRs between the line feeds make no blank line.
+    _attachment(b"attachment;\n\r\r\n filename=wire.pdf", "folded-across-two-crs"),
+    # Any other line after a line break is another header line, which ends
+    # the value: here one that Chromium skips, as it has no colon.
+    _attachment(b"attachment;\r\nfilename=wire.pdf", "line-break-before-text"),
+    _attachment(b"attachment;\r\n\x0bfilename=wire.pdf", "line-break-before-a-vertical-tab"),
+    _attachment(b"attachment;\r\n\x0cfilename=wire.pdf", "line-break-before-a-form-feed"),
+    _attachment(b"\r\nattachment; filename=wire.pdf", "line-break-at-the-start"),
+    _attachment(b"attachment; filename=wire.pdf\rX-Note: 1", "lone-cr-before-another-header"),
+    # The package does not read the second Content-Disposition. It is the same
+    # as the first, so that it changes nothing for Chromium either: another
+    # one would make Chromium refuse the response.
+    _attachment(
+        b"attachment; filename=a.pdf\rContent-Disposition: attachment; filename=a.pdf",
+        "lone-cr-before-the-same-content-disposition",
+    ),
+    # Neither a vertical tab nor a form feed breaks a line.
+    _attachment(b'attachment; filename="a\x0bb\x0cc.txt"', "vertical-tab-and-form-feed"),
+    # A blank line ends the headers: the rest of the response is the body.
+    _attachment(b"attachment;\r\n\r\n filename=wire.pdf", "blank-line"),
+    _attachment(b"attachment;\n\n filename=wire.pdf", "blank-line-of-lfs"),
+    _attachment(b"attachment;\n\r\n filename=wire.pdf", "blank-line-of-lf-cr-lf"),
+    # With the line break after the value, the LF makes a blank line.
+    _attachment(b'attachment; filename="a.txt"\n', "lf-at-the-end"),
+    _attachment(b'attachment; filename="a.txt"\r\n\r\n\0', "nul-after-a-blank-line"),
+    # A NUL anywhere in the headers makes Chromium refuse the response.
+    _attachment(b"attachment; filename=wi\0re.pdf", "nul"),
+    _attachment(b"attachment;\r\n\0filename=wire.pdf", "nul-after-a-line-break"),
+    BrowserCase(
+        "nul-download-attribute",
+        (b"attachment; filename=wi\0re.pdf",),
+        path="page",
+        content_type="text/html",
+        download_attribute="saved",
+    ),
+    BrowserCase(
+        "nul-in-another-header",
+        header_lines=(_OCTET_STREAM, NOSNIFF, (b"X-Note", b"a\0b"), ATTACHMENT),
+    ),
+    BrowserCase(
+        "nul-in-another-header-download-attribute",
+        header_lines=(_OCTET_STREAM, NOSNIFF, (b"X-Note", b"a\0b"), ATTACHMENT),
+        download_attribute="saved",
+    ),
+    BrowserCase(
+        "nul-in-a-name", header_lines=(_OCTET_STREAM, NOSNIFF, (b"X-No\0te", b"a"), ATTACHMENT)
+    ),
+    # Content-Type and X-Content-Type-Options are read the same way.
+    _probe("content-type-folded", (b"Content-Type", b"\r\n text/html"), NOSNIFF),
+    _probe(
+        "content-type-line-break", (b"Content-Type", b"image/png\r\nX-Note: text/html"), NOSNIFF
+    ),
+    _probe("nosniff-folded", (b"X-Content-Type-Options", b"\r\n nosniff")),
+]
+
+# Spaces and tabs between a header name and its colon. Chromium removes them
+# from the end of the name before it looks the header up.
+HEADER_NAME_CASES: list[BrowserCase] = [
+    BrowserCase(
+        "name-with-a-space-and-a-tab-at-the-end",
+        header_lines=(
+            _OCTET_STREAM,
+            NOSNIFF,
+            (b"Content-Disposition \t", b'attachment; filename="a.txt"'),
+        ),
+    ),
+    # Both lines are Content-Disposition, and their values differ, so Chromium
+    # refuses the response.
+    BrowserCase(
+        "name-with-a-space-at-the-end-and-another-value",
+        header_lines=(
+            _OCTET_STREAM,
+            NOSNIFF,
+            (b"Content-Disposition ", b'attachment; filename="a.txt"'),
+            (b"Content-Disposition", b'attachment; filename="b.txt"'),
+        ),
+    ),
+    _probe(
+        "content-type-name-with-a-space-and-a-tab-at-the-end",
+        (b"Content-Type \t", b"text/html"),
+        NOSNIFF,
+    ),
+    _probe(
+        "nosniff-name-with-a-space-and-a-tab-at-the-end", (b"X-Content-Type-Options \t", b"nosniff")
+    ),
 ]
 
 
@@ -454,24 +741,137 @@ def fuzz_cases(count: int = 150, seed: int = 20261016) -> list[BrowserCase]:
     cases = []
     for index in range(count):
         header = b"".join(generator.choice(_FUZZ_PIECES) for _ in range(generator.randint(1, 12)))
-        if _sendable(header) and b"," not in header:
+        if b"," not in header:
             cases.append(BrowserCase(f"fuzz-{index}", (header.strip(b" \t"),)))
     return cases
 
 
-def all_cases() -> list[BrowserCase]:
-    cases = (
+def _sniffed(
+    group: str, lines: HeaderLines, fallback: str, chromium: dict[str, str], path: str = "probe"
+) -> list[LimitedCase]:
+    """One case for each body in ``chromium``, which maps it to Chromium's name.
+
+    The package gives ``fallback`` for all of them: the same headers and URL.
+    """
+    bodies = {
+        "html": HTML_BODY,
+        "text": TEXT_BODY,
+        "gif": GIF_BODY,
+        "png": PNG_BODY,
+        "binary": BINARY_BODY,
+    }
+    return [
+        LimitedCase(
+            f"sniffed-{group}-{body}",
+            path=path,
+            header_lines=lines,
+            body=bodies[body],
+            fallback=fallback,
+            chromium=name,
+        )
+        for body, name in chromium.items()
+    ]
+
+
+def limited_cases() -> list[LimitedCase]:
+    """Responses whose body Chromium sniffs for a MIME type, listed by hand."""
+    content_type = b"Content-Type"
+    options = b"X-Content-Type-Options"
+    return [
+        # No Content-Type, no X-Content-Type-Options.
+        *_sniffed(
+            "no-content-type",
+            (ATTACHMENT,),
+            "probe",
+            {"html": "probe.html", "gif": "probe.gif", "binary": "probe"},
+        ),
+        # text/plain holds unless the body looks binary.
+        *_sniffed(
+            "text-plain",
+            ((content_type, b"text/plain"), ATTACHMENT),
+            "probe.txt",
+            {"text": "probe.txt", "gif": "probe.gif"},
+        ),
+        # application/octet-stream is sniffed only for Chrome extensions and
+        # Office documents.
+        *_sniffed(
+            "octet-stream",
+            ((content_type, b"application/octet-stream"), ATTACHMENT),
+            "probe",
+            {"png": "probe"},
+        ),
+        # The sniffed type replaces the URL's extension only after a query.
+        *_sniffed(
+            "url-extension", (ATTACHMENT,), "probe.bin", {"gif": "probe.bin"}, path="probe.bin"
+        ),
+        *_sniffed(
+            "url-extension-query",
+            (ATTACHMENT,),
+            "probe.bin",
+            {"gif": "probe.gif"},
+            path="probe.bin?x=1",
+        ),
+        # An empty filename names nothing, so the sniffed type still counts.
+        *_sniffed(
+            "empty-filename",
+            ((b"Content-Disposition", b'attachment; filename=""'),),
+            "probe",
+            {"html": "probe.html", "gif": "probe.gif"},
+        ),
+        # X-Content-Type-Options whose first value is not nosniff.
+        *_sniffed(
+            "options-second-value",
+            ((options, b"foo, nosniff"), ATTACHMENT),
+            "probe",
+            {"html": "probe.html", "binary": "probe"},
+        ),
+        *_sniffed(
+            "options-empty-first-value",
+            ((options, b", nosniff"), ATTACHMENT),
+            "probe",
+            {"html": "probe.html"},
+        ),
+        *_sniffed(
+            "options-empty-first-line",
+            ((options, b""), (options, b"nosniff"), ATTACHMENT),
+            "probe",
+            {"html": "probe.html"},
+        ),
+        *_sniffed(
+            "options-second-line",
+            ((options, b"foo"), (options, b"nosniff"), ATTACHMENT),
+            "probe",
+            {"html": "probe.html"},
+        ),
+        *_sniffed(
+            "options-quoted", ((options, b'"nosniff"'), ATTACHMENT), "probe", {"html": "probe.html"}
+        ),
+    ]
+
+
+def exact_cases() -> list[BrowserCase]:
+    """Responses whose headers and URL decide the name."""
+    return (
         chromium_unit_test_cases()
         + PRACTICAL_CASES
         + URL_CASES
         + MIME_CASES
+        + CONTENT_TYPE_CASES
+        + NOSNIFF_CASES
         + DOWNLOAD_ATTRIBUTE_CASES
         + HEADER_LINE_CASES
+        + RAW_LINE_CASES
+        + HEADER_NAME_CASES
         + charset_label_cases()
         + single_byte_table_cases()
         + multi_byte_cases()
         + fuzz_cases()
     )
+
+
+def all_cases() -> list[BrowserCase]:
+    """Both sets, the limited one last."""
+    cases: list[BrowserCase] = [*exact_cases(), *limited_cases()]
     ids = [case.id for case in cases]
     duplicates = {case_id for case_id in ids if ids.count(case_id) > 1}
     assert not duplicates, f"duplicate case ids: {sorted(duplicates)}"

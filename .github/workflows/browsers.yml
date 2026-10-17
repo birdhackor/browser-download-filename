@@ -1,8 +1,11 @@
 name: Browsers
 
 # Real browsers name the same downloads that the package names. Chromium must
-# agree on every case: the package ports its rules. Firefox and WebKit only
-# produce a report of where they differ (docs: Behavior and differences).
+# give the package's name for every case whose headers and URL decide it: the
+# package ports its rules. Where Chromium sniffs the body for a MIME type, it
+# must give the name the corpus lists for that body. Firefox and WebKit only
+# produce a report of where they differ from Chrome (docs: Behavior and
+# browser differences).
 
 on:
   push:

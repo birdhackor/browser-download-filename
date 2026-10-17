@@ -11,11 +11,12 @@ python -m pip install browser-download-filename
 ```pycon
 >>> from browser_download_filename import suggested_filename
 >>> header = b"attachment; filename=report.pdf; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf"
->>> suggested_filename("https://example.com/download?id=42", header)
+>>> headers = [("Content-Disposition", header)]
+>>> suggested_filename(headers, url="https://example.com/download?id=42")
 '報告.pdf'
 ```
 
-結果就是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」，也是可以直接拿來存檔的安全檔名。從 requests、httpx、httpx2、aiohttp 和 urllib 傳入標頭的寫法，見[使用方式](usage.md)。
+結果是可以直接拿來存檔的安全檔名，也是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」，[移植的限制](behavior.md#limits-of-the-port)列出的情況除外。從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭的寫法，見[使用方式](usage.md)。
 
 ## 為什麼需要它 {#why}
 
@@ -36,13 +37,14 @@ python -m pip install browser-download-filename
 
 | 函式 | 用途 |
 | --- | --- |
-| `suggested_filename(url, content_disposition, ...)` | Chrome 替一次下載取的檔名：依序從 Content-Disposition、`<a download>` 的值、網址或預設名取得，再清洗。選用參數可以加上 Chrome 依 MIME 類型補副檔名的規則，以及它在 Windows 上的規則。 |
-| `parse_content_disposition(value)` | 照 Chromium 的方式讀出標頭的處置類型和解碼後的檔名，不做清洗。 |
+| `suggested_filename(headers, url=..., ...)` | Chrome 替一次下載取的檔名：依序從 Content-Disposition、`<a download>` 的值、網址或預設名取得，再清洗；不是取自 Content-Disposition 的檔名，可能依 MIME 類型補上副檔名。Content-Disposition 和 MIME 類型取自回應的標頭，或 `content_disposition=` 與 `content_type=`；`platform=` 選擇 Chrome 在 Windows 或 POSIX 上的規則。 |
+| `sanitize_filename(name)` | 把 Chrome 的清洗規則套用在任何來源的名稱上，例如網頁標題或使用者輸入，清洗方式跟 Chrome 清洗 `<a download>` 的值相同。 |
+| `parse_content_disposition(value)` | 照 Chromium 的方式讀出標頭的處置類型和解碼後的檔名，不做清洗；也告訴你 Chrome 會不會因為 Content-Disposition 的值彼此不同，或標頭裡有 NUL，而拒絕這個回應。 |
 
-兩個函式都可以傳入位元組（bytes）或字串（str）形式的標頭，遇到格式錯誤的標頭不會丟出例外，而且除了標準庫之外沒有任何相依套件。支援 CPython 3.11 以上和 PyPy。
+`suggested_filename` 和 `parse_content_disposition` 都可以傳入回應的整組標頭，或單一個位元組（bytes）或字串（str）形式的標頭，遇到格式錯誤的標頭不會丟出例外。本套件除了標準庫之外沒有任何相依套件，支援 CPython 3.11 以上和 PyPy。
 
 ## 有多精確 {#how-exact-it-is}
 
-標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 800 多個案例，要求每一個的檔名都完全相同。測試的細節見[如何驗證](verification.md)；Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)。
+標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 900 多個案例，檢查每一個結果；測試的細節見[如何驗證](verification.md)。Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)；本套件的檔名在哪些情況下可能跟 Chrome 不同，見其中的[移植的限制](behavior.md#limits-of-the-port)。
 
 下一步：範例在[使用方式](usage.md)，完整的 API 在 [API 參考](api-reference.md)。

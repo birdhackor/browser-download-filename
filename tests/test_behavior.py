@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from browser_download_filename import (
     ContentDisposition,
     parse_content_disposition,
+    sanitize_filename,
     suggested_filename,
 )
 
@@ -73,10 +76,13 @@ def test_headers_without_usable_filename(header: bytes) -> None:
 def test_unquoted_comma_ends_the_value() -> None:
     # Chromium refuses such a response outright (the two values differ); the
     # parser, like HttpContentDisposition, reads the first value.
-    assert parse_content_disposition(b"attachment; filename=Report, Final.pdf").filename == "Report"
-    assert parse_content_disposition(b'attachment; filename="Report, Final.pdf"').filename == (
-        "Report, Final.pdf"
+    unquoted = parse_content_disposition(b"attachment; filename=Report, Final.pdf")
+    assert unquoted == ContentDisposition("attachment", "Report", blocks_download=True)
+    assert suggested_filename(content_disposition=b"attachment; filename=Report, Final.pdf") == (
+        "Report"
     )
+    quoted = parse_content_disposition(b'attachment; filename="Report, Final.pdf"')
+    assert quoted == ContentDisposition("attachment", "Report, Final.pdf")
 
 
 def test_disposition_types() -> None:
@@ -86,13 +92,16 @@ def test_disposition_types() -> None:
     )
     assert parse_content_disposition("form-data").is_attachment
     assert not parse_content_disposition("filename=a.txt").is_attachment
-    assert parse_content_disposition("attachment, inline").type == "attachment"
+    assert parse_content_disposition("attachment, inline") == ContentDisposition(
+        "attachment", None, blocks_download=True
+    )
 
 
 def test_filename_is_not_sanitized() -> None:
     parsed = parse_content_disposition(b'attachment; filename="../etc/passwd"')
     assert parsed.filename == "../etc/passwd"
-    assert suggested_filename(URL, b'attachment; filename="../etc/passwd"') == "_etc_passwd"
+    header = b'attachment; filename="../etc/passwd"'
+    assert suggested_filename(url=URL, content_disposition=header) == "_etc_passwd"
 
 
 @pytest.mark.parametrize(
@@ -112,7 +121,7 @@ def test_filename_is_not_sanitized() -> None:
     ],
 )
 def test_sanitization(header: bytes, expected: str) -> None:
-    assert suggested_filename(URL, header) == expected
+    assert suggested_filename(url=URL, content_disposition=header) == expected
 
 
 @pytest.mark.parametrize(
@@ -129,8 +138,8 @@ def test_sanitization(header: bytes, expected: str) -> None:
 )
 def test_platforms(name: str, posix: str, windows: str) -> None:
     header = f'attachment; filename="{name}"'
-    assert suggested_filename(URL, header) == posix
-    assert suggested_filename(URL, header, platform="windows") == windows
+    assert suggested_filename(url=URL, content_disposition=header, platform="posix") == posix
+    assert suggested_filename(url=URL, content_disposition=header, platform="windows") == windows
 
 
 # Chromium's pattern for the characters that rule out an 8.3 short name looks
@@ -145,42 +154,112 @@ def test_platforms(name: str, posix: str, windows: str) -> None:
 )
 def test_brackets_do_not_rule_out_a_short_name(name: str, posix: str, windows: str) -> None:
     header = f'attachment; filename="{name}"'
-    assert suggested_filename(URL, header) == posix
-    assert suggested_filename(URL, header, platform="windows") == windows
+    assert suggested_filename(url=URL, content_disposition=header, platform="posix") == posix
+    assert suggested_filename(url=URL, content_disposition=header, platform="windows") == windows
 
 
 def test_backslash_does_not_rule_out_a_short_name() -> None:
     # Only a default name still holds a '\' when the illegal characters are
     # replaced: SanitizeGeneratedFileName has turned every other one into '_'.
     url = "https://example.com/"
-    assert suggested_filename(url, default_name="a\\~1") == "a_~1"
-    assert suggested_filename(url, default_name="a\\~1", platform="windows") == "a__1"
+    assert suggested_filename(url=url, default_name="a\\~1", platform="posix") == "a_~1"
+    assert suggested_filename(url=url, default_name="a\\~1", platform="windows") == "a__1"
+
+
+@pytest.mark.parametrize(
+    ("sys_platform", "expected"),
+    [("win32", "_con.txt"), ("linux", "con.txt"), ("darwin", "con.txt")],
+)
+def test_platform_follows_the_running_system(
+    monkeypatch: pytest.MonkeyPatch, sys_platform: str, expected: str
+) -> None:
+    monkeypatch.setattr(sys, "platform", sys_platform)
+    assert suggested_filename(content_disposition='attachment; filename="con.txt"') == expected
+    assert sanitize_filename("con.txt") == expected
 
 
 def test_precedence() -> None:
     header = b'attachment; filename="cd.txt"'
-    assert suggested_filename(URL, header, suggested_name="attr.txt") == "cd.txt"
-    assert suggested_filename(URL, b"attachment", suggested_name="attr.txt") == "attr.txt"
-    assert suggested_filename(URL, b"attachment") == "file.bin"
-    assert suggested_filename("https://example.com/", b"attachment") == "download"
-    assert suggested_filename("https://example.com/", default_name="untitled") == "untitled"
-
-
-def test_mime_type_adds_missing_extension() -> None:
-    assert suggested_filename("https://example.com/page", mime_type="text/html") == "page.html"
-    assert suggested_filename("https://example.com/", mime_type="text/html; charset=utf-8") == (
-        "download.html"
-    )
-    assert suggested_filename("https://example.com/x", mime_type="application/octet-stream") == "x"
-    # Not for names that came from Content-Disposition.
+    attribute = "attr.txt"
     assert (
-        suggested_filename(URL, b'attachment; filename="noext"', mime_type="image/png") == "noext"
+        suggested_filename(url=URL, content_disposition=header, download_attribute=attribute)
+        == "cd.txt"
     )
+    assert (
+        suggested_filename(url=URL, content_disposition=b"attachment", download_attribute=attribute)
+        == "attr.txt"
+    )
+    assert suggested_filename(url=URL, content_disposition=b"attachment") == "file.bin"
+    assert suggested_filename(url="https://example.com/", content_disposition=b"attachment") == (
+        "download"
+    )
+    assert suggested_filename(url="https://example.com/", default_name="untitled") == "untitled"
+
+
+def test_content_type_adds_missing_extension() -> None:
+    page, root, x = "https://example.com/page", "https://example.com/", "https://example.com/x"
+    assert suggested_filename(url=page, content_type="text/html") == "page.html"
+    assert suggested_filename(url=root, content_type="text/html; charset=utf-8") == "download.html"
+    assert suggested_filename(url=x, content_type="application/octet-stream") == "x"
+    # Not for names that came from Content-Disposition.
+    header = b'attachment; filename="noext"'
+    assert suggested_filename(url=URL, content_disposition=header, content_type="image/png") == (
+        "noext"
+    )
+
+
+@pytest.mark.parametrize(
+    ("content_type", "expected"),
+    [
+        (b"application/pdf", "report.pdf"),
+        (b"TEXT/HTML; charset=utf-8", "report.html"),
+        (b"text/plain \t; format=flowed", "report.txt"),
+        # A byte outside ASCII stays in the type, which then has no
+        # extension, whichever bytes a str gives back for it.
+        (b"application/pdf\xe9", "report"),
+        (b"application/p\xe9df", "report"),
+        (b"", "report"),
+    ],
+)
+def test_content_type_as_bytes(content_type: bytes, expected: str) -> None:
+    url = "https://example.com/report"
+    as_bytes = suggested_filename(url=url, content_type=content_type)
+    as_str = suggested_filename(url=url, content_type=content_type.decode("latin-1"))
+    assert as_bytes == as_str == expected
 
 
 def test_fallback_charset_for_raw_bytes() -> None:
     header = b'attachment; filename="caf\xe9.txt"'
-    assert suggested_filename(URL, header) == "file.bin"
-    assert suggested_filename(URL, header, fallback_charset="windows-1252") == "café.txt"
+    assert suggested_filename(url=URL, content_disposition=header) == "file.bin"
+    assert (
+        suggested_filename(url=URL, content_disposition=header, fallback_charset="windows-1252")
+        == "café.txt"
+    )
     big5 = b'attachment; filename="' + "中文.txt".encode("big5") + b'"'
-    assert suggested_filename(URL, big5, fallback_charset="big5") == "中文.txt"
+    assert (
+        suggested_filename(url=URL, content_disposition=big5, fallback_charset="big5") == "中文.txt"
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "platform", "expected"),
+    [
+        ("報告.pdf", "posix", "報告.pdf"),
+        ("報告.pdf", "windows", "報告.pdf"),
+        ('a<b>c:d|e?f*g".txt', "posix", "a_b_c_d_e_f_g_.txt"),
+        ("../etc/passwd", "posix", "_etc_passwd"),
+        ("con.txt", "posix", "con.txt"),
+        ("con.txt", "windows", "_con.txt"),
+        ("NUL", "windows", "_NUL"),
+        ("desktop.ini", "windows", "_desktop.ini"),
+        ("...", "posix", "download"),
+        ("", "posix", "download"),
+    ],
+)
+def test_sanitize_filename(name: str, platform: str, expected: str) -> None:
+    assert sanitize_filename(name, platform=platform) == expected  # type: ignore[arg-type]
+
+
+def test_sanitize_filename_default_name() -> None:
+    assert sanitize_filename("...", default_name="untitled", platform="posix") == "untitled"
+    assert sanitize_filename("_-_", default_name="untitled", platform="posix") == "untitled"

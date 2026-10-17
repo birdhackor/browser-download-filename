@@ -36,9 +36,9 @@ jobs:
       # zensical builds one language per run, each with its own config and its
       # own subdirectory of site/.
       - name: Build English documentation
-        run: zensical build --config-file zensical.en.toml --clean
+        run: zensical build --config-file zensical.en.toml --clean --strict
       - name: Build Traditional Chinese documentation
-        run: zensical build --config-file zensical.zh-Hant.toml --clean
+        run: zensical build --config-file zensical.zh-Hant.toml --clean --strict
       - name: Write root redirect to the default language
         shell: bash
         run: |

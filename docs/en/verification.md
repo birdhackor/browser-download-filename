@@ -8,7 +8,8 @@ on Linux, macOS and Windows.
 
 The parts of Chromium that the package ports come with unit tests:
 `net/http/http_content_disposition_unittest.cc`,
-`net/base/filename_util_unittest.cc` and `base/i18n/file_util_icu_unittest.cc`.
+`net/http/http_util_unittest.cc`, `net/base/filename_util_unittest.cc` and
+`base/i18n/file_util_icu_unittest.cc`.
 Their cases are ported one by one, including the expectations for Windows,
 into more than 600 tests in `tests/test_chromium_*.py`.
 
@@ -29,25 +30,39 @@ Chromium fails the test.
 The browser tests in `tests/browser/` serve each case from a local HTTP server
 that writes the response headers byte for byte, download it with Chromium
 through Playwright, and compare the suggested file name that Chromium reports
-with what `suggested_filename` returns for the same URL, headers and MIME type.
-There are 831 cases:
+with what `suggested_filename` returns for the same URL and headers.
+There are 936 cases:
 
 - the headers of Chromium's unit tests;
 - headers seen in practice: both parameter orders, language tags, raw UTF-8,
   %-escapes, RFC 2047, quotes and semicolons, trailing semicolons, repeated
   headers;
-- URLs, MIME types and `<a download>` values;
+- header values with folded lines, other line breaks, blank lines and NULs,
+  and header names with spaces and tabs before the colon;
+- URLs, Content-Type and X-Content-Type-Options headers, and `<a download>`
+  values;
 - every charset label Chromium knows;
 - every character of every single-byte charset, every character of up to three
   bytes in every multi-byte charset, samples of gb18030's four-byte
   characters, and the byte sequences on which Python's codecs and ICU
   disagree;
-- 150 headers made by randomly mutating the others.
+- 150 headers put together at random from pieces that hit the parser's edge
+  cases.
 
-Chromium must give the same name for every case, or CI fails. The cases also
-run with Firefox, and with WebKit on Linux and macOS; those runs list the
-differences in their summary instead of failing (see [Behavior and browser
-differences](behavior.md#other-browsers)).
+The cases come in two sets, listed case by case in `tests/browser/corpus.py`.
+In the exact set (`exact_cases()`, 920 cases), the headers and the URL decide
+the name, and for every case Chromium must give what `chromium_expectation` in
+`tests/browser/test_browsers.py` predicts from the package's rules, or CI
+fails: the package's name, or, where the package says Chrome refuses the
+response, no download, or a name from the `download` attribute and the URL
+alone. The limited set (16 cases) holds
+responses whose body Chromium sniffs for a MIME type, where the package uses
+the declared type instead (see [The MIME type](behavior.md#the-mime-type)):
+for each case, Chromium must start the download and give the name listed for
+its body, and the package must give the name listed for its headers and URL.
+The cases also run with Firefox, and with WebKit on Linux and macOS; those
+runs list where the names differ from Chrome's in their summary instead of
+failing (see [Behavior and browser differences](behavior.md#other-browsers)).
 
 To run the browser tests yourself:
 
@@ -60,11 +75,36 @@ uv run pytest tests/browser --with-browser chromium --browser-report report.json
 `--with-browser` takes `chromium`, `firefox` or `webkit` and can be repeated;
 `--browser-report` also writes a Markdown summary next to the JSON file.
 
+## The HTTP libraries
+
+[Usage](usage.md#pass-the-headers-from-your-http-library) shows how to pass the
+headers from httpx2, httpx, requests, aiohttp and `urllib.request`. The tests
+in `tests/http_clients/` serve header lines byte for byte from a local HTTP
+server, among them repeated Content-Disposition lines, quotes left open, bytes
+in a legacy charset and in UTF-8, several Content-Type lines,
+X-Content-Type-Options, folded lines and other line breaks, NULs, and longer
+and more header lines than some libraries take. The tests fetch them with each
+library and pass the package what the usage page shows, and the result must be
+what the package gives for the lines as they were sent. Where the usage page
+says that a library reads such lines otherwise than Chrome or refuses them, or
+that another way gives another name, the tests check that name, or the
+exception the library raises. They also check what the documentation says
+about the libraries themselves, and run aiohttp with both of its HTTP
+parsers. CI runs them on CPython 3.11 and 3.15, and the weekly canary with
+the newest versions of the libraries:
+
+```console
+uv sync
+uv run pytest tests/http_clients --with-http-clients
+```
+
 ## Properties
 
 Hypothesis generates inputs to check that:
 
 - parsing any bytes or str never raises;
+- a header value with line breaks and NULs in it is read the same as a
+  line-by-line model of Chromium's parser reads it in a whole response head;
 - `suggested_filename` always returns a non-empty name with no character that
   is illegal anywhere, and none that is illegal at the start or end;
 - cleaning a name a second time does not change it, with two exceptions, both

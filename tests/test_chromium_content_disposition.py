@@ -11,6 +11,9 @@ from __future__ import annotations
 import pytest
 
 from browser_download_filename import parse_content_disposition
+from browser_download_filename._charset import require_charset
+from browser_download_filename._content_disposition import _parse
+from browser_download_filename._http import first_comma_separated_value
 
 # (header, referrer charset, expected filename); "" means no filename.
 FILENAME_CASES: list[tuple[bytes, str, str]] = [
@@ -377,8 +380,13 @@ def test_parse_result_disposition_type(header: bytes, expected_type: str) -> Non
 
 
 def test_contains_nul() -> None:
+    # Chromium runs this case only through HttpContentDisposition's
+    # constructor that takes a string, which parses the first comma-separated
+    # value as it is: NULs are not allowed in HTTP headers, and the network
+    # stack refuses a response whose headers hold one (see test_headers.py).
     # Both the header and the expected filename include a trailing NUL.
-    parsed = parse_content_disposition(b"filename=ab\0c\0", fallback_charset="utf-8")
+    header = first_comma_separated_value(b"filename=ab\0c\0")
+    parsed = _parse(header, require_charset("utf-8"))
     assert parsed.filename == "ab\0c\0"
 
 

@@ -48,7 +48,7 @@ jobs:
 
           header = b"attachment; filename=\"a.zip\"; filename*=UTF-8''%E4%B8%AD%E6%96%87.zip"
           assert parse_content_disposition(header).filename == "中文.zip"
-          assert suggested_filename("https://example.com/r%C3%A9sum%C3%A9.pdf") == "résumé.pdf"
+          assert suggested_filename(url="https://example.com/r%C3%A9sum%C3%A9.pdf") == "résumé.pdf"
           print("published package: ok")
           PY
 
@@ -61,11 +61,13 @@ jobs:
         with:
           version: "0.13.1"
           enable-cache: false
+      # dev includes the http-clients group, so the newest HTTP libraries are
+      # checked against the documentation too.
       - name: Upgrade the lock and test
         run: |
           uv lock --upgrade
           uv sync --python 3.15
-          uv run python -m pytest -p no:cacheprovider
+          uv run python -m pytest -p no:cacheprovider --with-http-clients
 
   newest-chromium:
     name: compare with the newest Playwright Chromium

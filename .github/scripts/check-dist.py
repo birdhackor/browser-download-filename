@@ -23,7 +23,9 @@ MODULES = {
     "_content_disposition.py",
     "_data.py",
     "_filename.py",
+    "_headers.py",
     "_http.py",
+    "_mime.py",
     "_url.py",
     "py.typed",
 }

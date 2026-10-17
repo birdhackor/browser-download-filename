@@ -16,11 +16,13 @@ from typing import NamedTuple
 
 import pytest
 
-from browser_download_filename import suggested_filename
+from browser_download_filename._charset import require_charset
 from browser_download_filename._filename import (
     _generate_safe_file_name,
+    _get_suggested_filename,
     _replace_illegal_characters,
 )
+from browser_download_filename._url import parse_url
 
 PLATFORMS = ("posix", "windows")
 
@@ -41,15 +43,17 @@ def _expected(case: Case, platform: str) -> str:
 
 
 def _run(case: Case, platform: str, referrer_charset: str | None = None) -> str:
+    # Chromium's own arguments, as the unit test passes them: mime_type is
+    # the type the download code hands over, not a Content-Type header.
     charset = case.referrer_charset if referrer_charset is None else referrer_charset
-    return suggested_filename(
-        case.url,
+    return _get_suggested_filename(
+        parse_url(case.url),
         case.content_disposition,
-        suggested_name=case.suggested_name,
-        mime_type=case.mime_type,
-        default_name=case.default_name,
-        fallback_charset=charset or None,
-        platform=platform,  # type: ignore[arg-type]
+        require_charset(charset or None),
+        case.suggested_name,
+        case.mime_type,
+        case.default_name,
+        windows=platform == "windows",
     )
 
 

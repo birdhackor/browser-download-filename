@@ -10,9 +10,11 @@ from hypothesis import strategies as st
 from browser_download_filename import (
     ContentDisposition,
     parse_content_disposition,
+    sanitize_filename,
     suggested_filename,
 )
 from browser_download_filename._filename import _ILLEGAL_ANYWHERE, _ILLEGAL_AT_ENDS
+from browser_download_filename._headers import line_value
 
 PIECES = st.sampled_from(
     [
@@ -22,7 +24,45 @@ PIECES = st.sampled_from(
     ]
 )  # fmt: skip
 HEADERS = st.one_of(st.binary(max_size=200), st.lists(PIECES, max_size=30).map(b"".join))
+# The Content-Disposition lines of one response. Lines that name a file mix
+# in, so that lines naming different files come up often.
+NAMED = st.sampled_from([b"a.txt", b"b.pdf", b"c"]).map(
+    lambda name: b"attachment; filename=" + name
+)
+LINES = st.lists(st.one_of(HEADERS, NAMED), max_size=4)
+# Line breaks, blank lines, other header lines and NUL, as they can come in
+# the value of a header line on the wire.
+LINE_PIECES = st.sampled_from(
+    [
+        b"\r", b"\n", b"\r\n", b"\r\n ", b"\n\t", b"\r\r", b"\n\r\n", b"\n\r\r\n", b" ",
+        b"\t", b"\x0b", b"\x0c", b"\x00", b":", b"X-Note: ", b"Content-Disposition: ",
+    ]
+)  # fmt: skip
+RAW_VALUES = st.one_of(
+    st.binary(max_size=60), st.lists(st.one_of(PIECES, LINE_PIECES), max_size=30).map(b"".join)
+)
 TEXT = st.text(max_size=80)
+PLATFORMS = st.sampled_from(["posix", "windows"])
+CONTENT_TYPE_PIECES = st.sampled_from(
+    [
+        b"text/html", b"text/plain", b"TEXT/HTML", b"image/png", b"application/rss+xml",
+        b"application/octet-stream", b"*/*", b"text", b"/", b",", b", ", b";", b"; charset=",
+        b"utf-8", b'"', b"\\", b" ", b"\t", b"(", b")", b"=", b"\xe9", b"\xc3\xa9", b"bogus",
+    ]
+)  # fmt: skip
+CONTENT_TYPE_VALUES = st.lists(CONTENT_TYPE_PIECES, max_size=8).map(b"".join)
+CONTENT_TYPES = st.one_of(
+    st.binary(max_size=60),
+    CONTENT_TYPE_VALUES,
+    st.lists(CONTENT_TYPE_VALUES, min_size=2, max_size=3).map(b", ".join),
+)
+OPTIONS = st.lists(
+    st.one_of(
+        st.binary(max_size=20),
+        st.sampled_from([b"nosniff", b"NOSNIFF", b'"nosniff"', b"nosniff, x", b"x, nosniff"]),
+    ),
+    max_size=2,
+).map(lambda values: [("X-Content-Type-Options", value) for value in values])
 
 
 @settings(max_examples=500)
@@ -40,6 +80,37 @@ def test_parse_accepts_any_str(header: str) -> None:
     parse_content_disposition(header)
 
 
+@settings(max_examples=300)
+@given(LINES, TEXT, PLATFORMS)
+def test_the_first_line_names_the_file(lines: list[bytes], path: str, platform: str) -> None:
+    url = "https://example.com/" + path
+    headers = [("Content-Disposition", line) for line in lines]
+    assert suggested_filename(
+        headers,
+        url=url,
+        platform=platform,  # type: ignore[arg-type]
+    ) == suggested_filename(
+        url=url,
+        content_disposition=lines[0] if lines else None,
+        platform=platform,  # type: ignore[arg-type]
+    )
+
+
+@settings(max_examples=300)
+@given(LINES)
+def test_parse_reads_the_first_line(lines: list[bytes]) -> None:
+    parsed = parse_content_disposition([("Content-Disposition", line) for line in lines])
+    first = parse_content_disposition(lines[0] if lines else None)
+    assert (parsed.type, parsed.filename) == (first.type, first.filename)
+
+
+@settings(max_examples=300)
+@given(HEADERS, st.integers(min_value=1, max_value=3))
+def test_repeating_a_line_changes_nothing(line: bytes, count: int) -> None:
+    headers = [("Content-Disposition", line)] * count
+    assert parse_content_disposition(headers) == parse_content_disposition(line)
+
+
 def _assert_safe(name: str) -> None:
     assert name
     assert not any(_ILLEGAL_ANYWHERE.match(char) for char in name)
@@ -48,18 +119,79 @@ def _assert_safe(name: str) -> None:
 
 
 @settings(max_examples=400)
-@given(HEADERS, TEXT, st.sampled_from(["posix", "windows"]))
+@given(HEADERS, TEXT, PLATFORMS)
 def test_suggested_filename_is_always_a_safe_name(header: bytes, path: str, platform: str) -> None:
     name = suggested_filename(
-        "https://example.com/" + path,
-        header,
+        url="https://example.com/" + path,
+        content_disposition=header,
         platform=platform,  # type: ignore[arg-type]
     )
     _assert_safe(name)
 
 
 @settings(max_examples=400)
-@given(TEXT, st.sampled_from(["posix", "windows"]))
+@given(st.lists(CONTENT_TYPES, max_size=3), OPTIONS, TEXT, PLATFORMS)
+def test_any_content_type_gives_a_safe_name(
+    content_types: list[bytes], options: list[tuple[str, bytes]], path: str, platform: str
+) -> None:
+    headers = [("Content-Type", value) for value in content_types] + options
+    name = suggested_filename(
+        headers,
+        # A query lets the MIME type replace the extension.
+        url="https://example.com/" + path + "?q",
+        platform=platform,  # type: ignore[arg-type]
+    )
+    _assert_safe(name)
+
+
+@settings(max_examples=300)
+@given(CONTENT_TYPES, OPTIONS, TEXT)
+@example(b"text/plain, text/html", [], "page")
+def test_content_type_argument_is_a_content_type_line(
+    value: bytes, options: list[tuple[str, bytes]], path: str
+) -> None:
+    url = "https://example.com/" + path + "?q"
+    assert suggested_filename(options, url=url, content_type=value, platform="posix") == (
+        suggested_filename([("Content-Type", value), *options], url=url, platform="posix")
+    )
+
+
+@settings(max_examples=300)
+@given(st.lists(CONTENT_TYPES, min_size=1, max_size=3), OPTIONS)
+@example([b'text/plain; note="', b"text/html"], [])
+def test_content_type_lines_are_their_values_joined(
+    values: list[bytes], options: list[tuple[str, bytes]]
+) -> None:
+    # Chromium joins the lines, trimmed, with ", " before it splits them, so
+    # a quote left open on one line goes on into the next. Each line is read
+    # as it came on the wire first.
+    joined = b", ".join(line_value(value, None).value.strip(b" \t") for value in values)
+    url = "https://example.com/page"
+    assert suggested_filename(
+        [*(("Content-Type", value) for value in values), *options], url=url, platform="posix"
+    ) == suggested_filename([("Content-Type", joined), *options], url=url, platform="posix")
+
+
+@settings(max_examples=400)
+@given(TEXT, st.one_of(st.just("download"), st.text(min_size=1, max_size=20)), PLATFORMS)
+def test_sanitize_filename_names_a_download_attribute(
+    name: str, default_name: str, platform: str
+) -> None:
+    sanitized = sanitize_filename(
+        name,
+        default_name=default_name,
+        platform=platform,  # type: ignore[arg-type]
+    )
+    assert sanitized == suggested_filename(
+        download_attribute=name,
+        default_name=default_name,
+        platform=platform,  # type: ignore[arg-type]
+    )
+    _assert_safe(sanitized)
+
+
+@settings(max_examples=400)
+@given(TEXT, PLATFORMS)
 # On Windows, ReplaceIllegalCharactersInPath decides from the name it is given
 # whether that could be an 8.3 short name, and replaces every '~' only if so.
 # In "0~|" the '|' rules a short name out, so the '~' stays while the '|'
@@ -67,8 +199,8 @@ def test_suggested_filename_is_always_a_safe_name(header: bytes, path: str, plat
 # '~'. A '~' in a name that can never be a short name stays both times.
 @example("0~|", "windows")
 def test_sanitizing_twice_changes_nothing_but_windows_tildes(name: str, platform: str) -> None:
-    once = suggested_filename(None, suggested_name=name, platform=platform)  # type: ignore[arg-type]
-    twice = suggested_filename(None, suggested_name=once, platform=platform)  # type: ignore[arg-type]
+    once = suggested_filename(download_attribute=name, platform=platform)  # type: ignore[arg-type]
+    twice = suggested_filename(download_attribute=once, platform=platform)  # type: ignore[arg-type]
     if not once.strip("-_"):
         # Chromium replaces a name made only of '-' and '_' with the default,
         # so "_" (what '"' becomes) turns into "download" the second time.
@@ -96,6 +228,84 @@ def test_ext_value_round_trip(name: str) -> None:
         assert parsed.filename == unicodedata.normalize("NFC", name)
 
 
+@settings(max_examples=400)
+@given(st.lists(RAW_VALUES, max_size=3), RAW_VALUES, RAW_VALUES, TEXT, PLATFORMS)
+def test_values_as_sent_never_raise_and_give_a_safe_name(
+    dispositions: list[bytes], content_type: bytes, options: bytes, path: str, platform: str
+) -> None:
+    headers = [
+        *(("Content-Disposition", value) for value in dispositions),
+        ("Content-Type", content_type),
+        ("X-Content-Type-Options", options),
+    ]
+    url = "https://example.com/" + path + "?q"
+    parsed = parse_content_disposition(headers)
+    assert parsed.type in ("inline", "attachment")
+    assert parsed.filename is None or (isinstance(parsed.filename, str) and parsed.filename)
+    for name in (
+        suggested_filename(headers, url=url, platform=platform),  # type: ignore[arg-type]
+        suggested_filename(
+            url=url,
+            content_disposition=dispositions[0] if dispositions else None,
+            content_type=content_type,
+            platform=platform,  # type: ignore[arg-type]
+        ),
+    ):
+        _assert_safe(name)
+
+
+def _chromium_reads(value: bytes) -> tuple[bytes, bool]:
+    """What Chromium reads in a response head with this value for X.
+
+    That is the value of X, and whether the response is refused for a NUL.
+    The head is read whole, the way HttpStreamParser hands it on: the end of
+    the headers is found byte by byte as LocateEndOfHeaders does, then
+    HttpResponseHeaders::TryToCreate refuses a NUL in it, and the lines are
+    joined line by line as AssembleRawHeaders does.
+    """
+    head = b"HTTP/1.1 200 OK\r\nX: " + value + b"\r\n\r\n"
+    end = 0
+    last = 0
+    was_lf = False
+    while end < len(head):
+        byte = head[end]
+        end += 1
+        if byte == 0x0A:
+            if was_lf:
+                break
+            was_lf = True
+        elif byte != 0x0D or last != 0x0A:
+            was_lf = False
+        last = byte
+    head = head[:end]
+    refused = 0 in head
+    # The status line ends at the first CR, before X; then every token
+    # between runs of CR and LF is a line.
+    tokens = [
+        token for token in head[head.index(b"\r") :].replace(b"\r", b"\n").split(b"\n") if token
+    ]
+    lines: list[bytes] = []
+    continuable = False
+    for line in tokens:
+        if continuable and line[:1] in (b" ", b"\t"):
+            lines[-1] += b" " + line.lstrip(b" \t")
+        else:
+            lines.append(line)
+            colon = line.find(b":")
+            continuable = colon > 0 and line[:1] not in (b" ", b"\t")
+    assert lines[0].startswith(b"X: ")
+    return lines[0][len(b"X: ") :], refused
+
+
+@settings(max_examples=500)
+@given(RAW_VALUES)
+@example(b"a\n\r\r\n b")
+@example(b"a\n")
+@example(b"\r\n b\n\nc\0")
+def test_a_value_is_read_as_chromium_reads_it_in_a_response_head(value: bytes) -> None:
+    assert line_value(value, None) == _chromium_reads(value)
+
+
 def test_large_adversarial_inputs_are_fast() -> None:
     inputs = [
         b"attachment; filename=" + b'"' * 200_000,
@@ -105,8 +315,55 @@ def test_large_adversarial_inputs_are_fast() -> None:
         b"attachment; filename*=UTF-8''" + b"%41" * 60_000,
         b"attachment; filename*=shift_jis''" + b"%81" * 60_000,
         b"attachment; filename=" + b"a " * 100_000,
+        # Lines to join, lines that end the value, and runs of line breaks.
+        b"attachment; filename=a" + b"\r\n " * 100_000,
+        b'attachment; filename="' + b"\n\ta" * 100_000,
+        b"attachment; filename=a" + b"\na" * 100_000,
+        b"attachment; filename=a" + b"\r" * 200_000 + b" b",
+        b"attachment; filename=a" + b"\n\r\r" * 100_000,
+        b"attachment; filename=a" + b"\r\n\0" * 100_000,
     ]
     for header in inputs:
         started = time.perf_counter()
-        suggested_filename("https://example.com/x", header)
+        suggested_filename(url="https://example.com/x", content_disposition=header)
         assert time.perf_counter() - started < 2.0
+    # parse_content_disposition also splits every value, to compare them. The
+    # inputs are long enough that copying the rest of the header for each
+    # value would take too long.
+    for header in [*inputs, b"attachment" + b"," * 500_000, b'"a",' * 125_000]:
+        started = time.perf_counter()
+        parse_content_disposition(header)
+        assert time.perf_counter() - started < 2.0
+    lines = [("Content-Disposition", b"attachment")] * 20_000 + [("Content-Disposition", b"x")]
+    started = time.perf_counter()
+    assert parse_content_disposition(lines).blocks_download
+    assert suggested_filename(lines) == "download"
+    assert time.perf_counter() - started < 2.0
+    folded = [("Content-Disposition", b"attachment;\r\n filename=a.txt\r\n\0")] * 20_000
+    started = time.perf_counter()
+    assert parse_content_disposition(folded).blocks_download
+    assert suggested_filename(folded) == "a.txt"
+    assert time.perf_counter() - started < 2.0
+
+
+def test_large_adversarial_content_types_are_fast() -> None:
+    url = "https://example.com/x"
+    for value in [
+        b"," * 500_000,
+        b'"' * 200_000,
+        b'"a",' * 125_000,
+        b"text/html, " * 50_000,
+        b"text/html;" + b"(" * 200_000,
+        b"/" * 200_000,
+        b"\\" * 200_000,
+        b" " * 200_000 + b"text/html",
+    ]:
+        started = time.perf_counter()
+        # Both as one line and as the value of each of many lines.
+        suggested_filename([("Content-Type", value), ("X-Content-Type-Options", value)], url=url)
+        suggested_filename([("Content-Type", value[:50])] * 10_000, url=url)
+        assert time.perf_counter() - started < 2.0
+    lines = [("Content-Type", b"text/html")] * 20_000 + [("X-Content-Type-Options", b"x")] * 20_000
+    started = time.perf_counter()
+    assert suggested_filename(lines, url=url) == "x.html"
+    assert time.perf_counter() - started < 2.0

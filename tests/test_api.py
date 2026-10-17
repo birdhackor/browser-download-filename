@@ -14,6 +14,7 @@ import browser_download_filename
 from browser_download_filename import (
     ContentDisposition,
     parse_content_disposition,
+    sanitize_filename,
     suggested_filename,
 )
 from browser_download_filename._data import CHROMIUM_REVISION, ICU_REVISION
@@ -24,8 +25,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_public_names() -> None:
     assert sorted(browser_download_filename.__all__) == [
         "ContentDisposition",
+        "HeadersLike",
         "__version__",
         "parse_content_disposition",
+        "sanitize_filename",
         "suggested_filename",
     ]
 
@@ -43,32 +46,87 @@ def test_content_disposition_is_a_frozen_value() -> None:
     assert dataclasses.is_dataclass(parsed)
     with pytest.raises(dataclasses.FrozenInstanceError):
         parsed.filename = "b.txt"  # type: ignore[misc]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        parsed.blocks_download = True  # type: ignore[misc]
     assert parsed == ContentDisposition("attachment", "a.txt")
     assert hash(parsed) == hash(ContentDisposition("attachment", "a.txt"))
 
 
+def test_content_disposition_fields() -> None:
+    fields = {field.name: field for field in dataclasses.fields(ContentDisposition)}
+    assert list(fields) == ["type", "filename", "blocks_download"]
+    assert fields["blocks_download"].default is False
+    # Every field takes part in equality, hashing and the repr.
+    assert all(field.compare and field.repr and field.hash is None for field in fields.values())
+    blocked = ContentDisposition("attachment", "a.txt", True)
+    assert blocked.blocks_download is True
+    assert blocked != ContentDisposition("attachment", "a.txt")
+    assert hash(blocked) == hash(ContentDisposition("attachment", "a.txt", blocks_download=True))
+    assert len({blocked, ContentDisposition("attachment", "a.txt")}) == 2
+    assert repr(blocked) == (
+        "ContentDisposition(type='attachment', filename='a.txt', blocks_download=True)"
+    )
+
+
 def test_signatures() -> None:
     parameters = inspect.signature(parse_content_disposition).parameters
-    assert list(parameters) == ["value", "fallback_charset"]
-    assert parameters["fallback_charset"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert list(parameters) == ["value", "fallback_charset", "headers_encoding"]
+    assert parameters["value"].kind is inspect.Parameter.POSITIONAL_ONLY
+    assert parameters["value"].default is inspect.Parameter.empty
+    assert all(
+        parameters[name].kind is inspect.Parameter.KEYWORD_ONLY and parameters[name].default is None
+        for name in ("fallback_charset", "headers_encoding")
+    )
     parameters = inspect.signature(suggested_filename).parameters
     assert list(parameters) == [
+        "headers",
         "url",
         "content_disposition",
-        "suggested_name",
-        "mime_type",
+        "content_type",
+        "download_attribute",
         "default_name",
         "fallback_charset",
+        "headers_encoding",
         "platform",
     ]
+    assert parameters["headers"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert all(
-        parameters[name].kind is inspect.Parameter.KEYWORD_ONLY for name in list(parameters)[2:]
+        parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        for name, parameter in parameters.items()
+        if name != "headers"
+    )
+    assert {name: parameter.default for name, parameter in parameters.items()} == {
+        "headers": None,
+        "url": None,
+        "content_disposition": None,
+        "content_type": None,
+        "download_attribute": None,
+        "default_name": "download",
+        "fallback_charset": None,
+        "headers_encoding": None,
+        "platform": None,
+    }
+    parameters = inspect.signature(sanitize_filename).parameters
+    assert list(parameters) == ["name", "default_name", "platform"]
+    assert parameters["name"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert parameters["name"].default is inspect.Parameter.empty
+    assert parameters["default_name"].default == "download"
+    assert parameters["platform"].default is None
+    assert all(
+        parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+        for name in ("default_name", "platform")
     )
 
 
 @pytest.mark.parametrize(
     "member",
-    [browser_download_filename, ContentDisposition, parse_content_disposition, suggested_filename],
+    [
+        browser_download_filename,
+        ContentDisposition,
+        parse_content_disposition,
+        sanitize_filename,
+        suggested_filename,
+    ],
 )
 def test_documented(member: object) -> None:
     assert inspect.getdoc(member)

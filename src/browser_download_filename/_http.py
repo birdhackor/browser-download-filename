@@ -1,4 +1,4 @@
-"""Header value splitting as done by Chromium's HttpUtil.
+"""Header lines and values as Chromium's HttpUtil reads them.
 
 Ported from Chromium's net/http/http_util.cc and base/strings/string_tokenizer.h
 (BSD-3-Clause, see THIRD-PARTY-LICENSES).
@@ -11,6 +11,52 @@ from collections.abc import Iterator
 from typing import NamedTuple
 
 from ._bytes import trim_lws
+
+# A line feed, then an optional carriage return and another line feed: the
+# blank line that ends the headers.
+_END_OF_HEADERS = re.compile(rb"\n\r?\n")
+# A run of carriage returns and line feeds, which ends a line; the empty
+# lines inside a run are skipped, as base::StringTokenizer skips them.
+_LINE_BREAKS = re.compile(rb"[\r\n]+")
+
+
+def locate_end_of_headers(data: bytes) -> int | None:
+    """HttpUtil::LocateEndOfHeaders: the offset just past the blank line.
+
+    None if ``data`` holds no blank line. Only line feeds make the blank
+    line: one carriage return between two line feeds, as in "\\n\\r\\n",
+    still leaves a blank line, while two, as in "\\n\\r\\r\\n", do not. What
+    follows the blank line is the body. The package looks for it in the
+    value of each header line, which does not start with a line feed on the
+    wire, since the header name and the colon come before it.
+    """
+    end = _END_OF_HEADERS.search(data)
+    return None if end is None else end.end()
+
+
+def assemble_raw_headers(value: bytes) -> bytes:
+    """HttpUtil::AssembleRawHeaders, for the value of one header line.
+
+    ``value`` is the rest of the header line, up to the end of the headers,
+    and can hold line breaks: every run of carriage returns and line feeds
+    ends a line. The first line belongs to the header, even if it is empty.
+    A line that starts with a space or a tab continues the header, and is
+    joined to it as one space and the line without its leading spaces and
+    tabs; the spaces and tabs at the end of the line before are kept. Any
+    other line is another header line, so the value ends before it. Vertical
+    tabs and form feeds are neither line breaks nor spaces.
+    """
+    first, *rest = _LINE_BREAKS.split(value)
+    if not rest:
+        return first
+    joined = [first]
+    for line in rest:
+        if line[:1] not in (b" ", b"\t"):
+            # Another header line, or the end of the value.
+            break
+        joined.append(line.lstrip(b" \t"))
+    return b" ".join(joined)
+
 
 # A run of bytes up to the next delimiter, where a double-quoted section may
 # contain the delimiter. Inside quotes a backslash escapes the next byte, and a
@@ -45,9 +91,13 @@ def first_comma_separated_value(data: bytes) -> bytes:
     return next(_split(data, _COMMA_VALUE, keep_empty=True))
 
 
-def comma_separated_values(data: bytes) -> list[bytes]:
-    """All values, as HttpResponseHeaders stores a coalescable header."""
-    return list(_split(data, _COMMA_VALUE, keep_empty=True))
+def comma_separated_values(data: bytes, *, ignore_empty: bool = False) -> list[bytes]:
+    """All values, as HttpResponseHeaders stores a coalescable header.
+
+    With ``ignore_empty``, values that are empty once trimmed are left out,
+    as HttpUtil::ValuesIterator does by default.
+    """
+    return list(_split(data, _COMMA_VALUE, keep_empty=not ignore_empty))
 
 
 class Parameter(NamedTuple):

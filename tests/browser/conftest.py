@@ -1,9 +1,10 @@
 """Fixtures that ask real browsers what they name a download.
 
 The browser tests run only with --with-browser (chromium, firefox or webkit;
-repeatable). A small HTTP server sends each case's headers byte for byte, a
-Playwright page clicks a same-origin link to it, and the test compares the
-download's suggested filename with this package's answer.
+repeatable). A small HTTP server sends each case's header lines, in order,
+and its body byte for byte, a Playwright page clicks a same-origin link to
+it, and the test compares the download's suggested filename with the name
+Chrome is expected to give.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 INDEX_PAGE = (
     b"<!doctype html><meta charset=utf-8><title>downloads</title><a id=link href=#>link</a>"
 )
-BODY = bytes(range(256)) * 4
+SETS = ("exact", "limited")
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -49,11 +50,9 @@ class _Handler(socketserver.StreamRequestHandler):
         if len(segments) > 2 and segments[1] == "case" and segments[2].isdigit():
             case = self.server.cases[int(segments[2])]
             head = b"HTTP/1.1 200 OK\r\n"
-            head += b"Content-Type: " + case.content_type.encode("latin-1") + b"\r\n"
-            head += b"X-Content-Type-Options: nosniff\r\n"
-            for value in case.headers:
-                head += b"Content-Disposition: " + value + b"\r\n"
-            body = BODY
+            for name, value in case.response_headers:
+                head += name + b": " + value + b"\r\n"
+            body = case.body
         else:
             head = b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
             body = INDEX_PAGE
@@ -157,22 +156,28 @@ def report(request: pytest.FixtureRequest) -> Iterator[Report]:
         return
     target = Path(path)
     target.write_text(json.dumps(collected.rows, ensure_ascii=False, indent=1), encoding="utf-8")
-    differing = [row for row in collected.rows if row["ours"] != row["result"]]
+    # "expected" is the name Chrome gives: the package's in the exact set, the
+    # one the corpus lists in the limited set.
+    differing = [row for row in collected.rows if row["expected"] != row["result"]]
     lines = []
     for engine, version in dict.fromkeys((row["engine"], row["version"]) for row in collected.rows):
-        rows = [row for row in collected.rows if row["engine"] == engine]
-        same = sum(row["ours"] == row["result"] for row in rows)
-        lines.append(
-            f"- {engine} {version}: {len(rows)} cases, {same} same, {len(rows) - same} differ"
-        )
+        for name in SETS:
+            rows = [row for row in collected.rows if row["engine"] == engine and row["set"] == name]
+            if rows:
+                same = sum(row["expected"] == row["result"] for row in rows)
+                lines.append(
+                    f"- {engine} {version}, {name} set: {len(rows)} cases, {same} same as Chrome,"
+                    f" {len(rows) - same} differ"
+                )
     if differing:
         lines += [
             "",
-            "| browser | case | Chromium rules (this package) | browser |",
-            "| --- | --- | --- | --- |",
+            "| browser | set | case | Chrome | this package | browser |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
         lines += [
-            f"| {row['engine']} | `{row['case']}` | {_cell(row['ours'])} | {_cell(row['result'])} |"
+            f"| {row['engine']} | {row['set']} | `{row['case']}` | {_cell(row['expected'])}"
+            f" | {_cell(row['ours'])} | {_cell(row['result'])} |"
             for row in differing
         ]
     target.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
