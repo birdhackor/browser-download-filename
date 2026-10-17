@@ -5,10 +5,11 @@ Chrome does beyond them, and where Firefox and Safari name files differently.
 
 ## Reading header lines
 
-Chrome reads the headers of a response as the bytes that arrive, before it
-reads any one header. The package reads each header value the same way, as
-the rest of its header line as it was sent, so a value can hold line breaks,
-which HTTP has long deprecated inside a header:
+This section is about how Chrome reads the headers of an HTTP/1.1 response,
+which is what the browser tests check. Chrome reads them as the bytes that
+arrive, before it reads any one header. The package reads each header value
+the same way, as the rest of its header line as it was sent, so a value can
+hold line breaks, which HTTP has long deprecated inside a header:
 
 - **A blank line ends the headers.** A line feed, then an optional CR and
   another line feed make a blank line, and what follows it is the body.
@@ -28,9 +29,18 @@ which HTTP has long deprecated inside a header:
   `suggested_filename` names the file all the same. A NUL after a blank line
   is in the body, and changes nothing.
 
-The package reads one value at a time, so it does not read every header line
-that values make on the wire the way Chrome does (see [Limits of the
-port](#limits-of-the-port)).
+Each name is matched as the name of one header line, the part before its
+first colon, the way Chrome matches it: the spaces and tabs at its end are
+removed, and the rest is compared whatever its ASCII case, so
+`Content-Disposition \t` is Content-Disposition. A name that is empty, that
+starts with a space or a tab, or that is not a token once trimmed matches no
+header, as Chrome skips such a line. Only spaces and tabs are removed, so a
+name that ends in another control character, such as a vertical tab, is not a
+token.
+
+The package reads each name and each value on its own, so it does not read
+every header line that they make on the wire the way Chrome does (see [Limits
+of the port](#limits-of-the-port)).
 
 ## Reading Content-Disposition
 
@@ -210,6 +220,17 @@ gives Chrome's name only if it downloads nothing either.
   shows make header lines of their own out of such lines, end the headers at
   the blank line, or refuse the response, so this matters only for header
   lines that you put together yourself.
+- **A colon, a line break, or a leading space or tab in a name.** The package
+  matches each name as the name of one header line (see [Reading header
+  lines](#reading-header-lines)). On the wire, Chrome ends a name at its first
+  colon, starts another line at a CR or a line feed, and can join a line that
+  starts with a space or a tab to the header line before it, so the headers
+  it reads can differ from the package's: for the name
+  `Content-Disposition:attachment; filename=b.txt;x` and the value `y`, Chrome
+  names the file `b.txt`, and the package reads no Content-Disposition. Where
+  a line break in a name makes a blank line, with another line break in the
+  name or with the one before the name, it ends the headers on the wire, but
+  the package goes on to read the header lines after it.
 - **MIME sniffing.** Where Chrome sniffs the body for a MIME type, the package
   uses the declared one, so the extension can differ from Chrome's. Only
   downloads that Chrome loads over the network are modeled: Playwright's

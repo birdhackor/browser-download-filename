@@ -109,7 +109,7 @@ requests、httpx 和 httpx2 的 `response.headers` 會用 `, ` 把同一個標�
 有些 HTTP 不允許的標頭行，Chrome 照樣會讀（見[讀取標頭行](behavior.md#reading-header-lines)），而各個函式庫不見得跟 Chrome 讀得一樣：
 
 - **NUL。** 標頭裡有 NUL 時，Chrome 會拒絕這個回應（見[有多個 Content-Disposition 標頭時](#several-content-disposition-headers)）。requests 和 `urllib.request` 會把標頭行裡的 NUL 交出來，`blocks_download` 會告訴你 Chrome 拒絕這個回應；除非 NUL 讓它們無法把那一行當成標頭行來讀（見下一項）。httpx2、httpx 和 aiohttp 則自己拒收這個回應，丟出例外。
-- **不是標頭行的行。** requests 和 `urllib.request` 遇到無法當成標頭行來讀的行，就停止讀取標頭，之後的標頭行都會遺失：值裡換行之後沒有冒號的文字，Chrome 會略過它；名稱裡有 NUL 的標頭，或以 NUL 開頭的行，Chrome 會因此拒絕這個回應；只有 CR 的行，例如值結尾的 CR 跟後面的換行構成的那一行，對 Chrome 來說不是空行。aiohttp 的 Python parser 也會在只有 CR 的行結束標頭。httpx2、httpx 和 aiohttp 遇到不是標頭行的行，就拒收這個回應。
+- **不是標頭行的行。** requests 和 `urllib.request` 遇到無法當成標頭行來讀的行，就停止讀取標頭，之後的標頭行都會遺失：值裡換行之後沒有冒號的文字，Chrome 會略過它；名稱和冒號之間有空白或 tab 的行，Chrome 照樣讀成標頭；名稱裡有 NUL 的標頭，或以 NUL 開頭的行，Chrome 會因此拒絕這個回應；只有 CR 的行，例如值結尾的 CR 跟後面的換行構成的那一行，對 Chrome 來說不是空行。aiohttp 的 Python parser 也會在只有 CR 的行結束標頭。httpx2、httpx 和 aiohttp 遇到不是標頭行的行，就拒收這個回應。
 - **單獨的 CR。** 後面沒有 LF 的 CR 會換行，Chrome 如此，requests 和 `urllib.request` 也一樣。httpx2、httpx 和 aiohttp 的 C parser 會拒收這個回應；aiohttp 的 Python parser 會去掉行尾的 CR，遇到其他的 CR 則拒收。
 - **垂直 tab 和換頁**對 Chrome 來說是值的一部分。httpx2 和 httpx 會拒收這個回應。
 
@@ -183,7 +183,7 @@ Chrome 拒絕一個回應時，指向它的一般連結什麼都不會下載：C
 
 ## 解碼舊式字元集 {#decode-legacy-charsets}
 
-`filename` 裡不是 UTF-8 的原始位元組，或網址裡百分比編碼後不是 UTF-8 的位元組，本身都沒有標明字元集。Chrome 會用瀏覽器的「預設文字編碼」來解碼，這個設定跟著瀏覽器的語言走：英文是 windows-1252，正體中文是 Big5，簡體中文是 GBK，日文是 Shift_JIS，依此類推。DevTools 和 Playwright 不用任何備援編碼，本套件預設也不用；這時 Linux 上的 Chromium 會丟掉這個檔名，改用網址。要得到 Chrome 實際存檔的檔名，就把這個編碼傳給 `fallback_charset`：
+`filename` 裡不是 UTF-8 的原始位元組，或網址裡百分比編碼後不是 UTF-8 的位元組，本身都沒有標明字元集。Chrome 會用瀏覽器的「預設文字編碼」來解碼，這個設定跟著瀏覽器的語言走：英文是 windows-1252，正體中文是 Big5，簡體中文是 GBK，日文是 Shift_JIS，依此類推。DevTools 和 Playwright 不用任何備援編碼，本套件預設也不用（這時 `filename` 裡的這些位元組會怎麼處理，見[讀取 Content-Disposition](behavior.md#reading-content-disposition)）。要得到 Chrome 實際存檔的檔名，就把這個編碼傳給 `fallback_charset`：
 
 ```pycon
 >>> header = b'attachment; filename="caf\xe9.txt"'

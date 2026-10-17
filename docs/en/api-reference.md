@@ -77,10 +77,11 @@ The type of a response's headers, in the shapes HTTP libraries hold them:
   the `response.headers.raw` of httpx and httpx2, or aiohttp's
   `response.raw_headers`.
 
-A name is a str or bytes, and names match whatever their ASCII case. A value
-(`HeaderValue`) is a str or bytes, or a list or tuple of them, one for each
-header line. The lines keep their order, and repeated lines all count. The
-headers are read only once, so a generator works too.
+A name is a str or bytes, matched as [Reading header
+lines](behavior.md#reading-header-lines) describes. A value (`HeaderValue`) is
+a str or bytes, or a list or tuple of them, one for each header line. The
+lines keep their order, and repeated lines all count. The headers are read
+only once, so a generator works too.
 
 Each value is the rest of its header line as it was sent. It can hold line
 breaks, which are read as Chrome reads them: a line that starts with a space

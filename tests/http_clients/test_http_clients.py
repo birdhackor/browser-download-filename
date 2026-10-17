@@ -95,6 +95,8 @@ CASES = (
         "names-in-other-cases",
         ((b"content-disposition", b"attachment"), (b"CONTENT-TYPE", b"application/pdf")),
     ),
+    # Chromium takes the spaces and tabs before the colon off the name.
+    Case("space-and-tab-before-the-colon", ((CD + b" \t", A),)),
     Case("url-escapes", (), name="r%C3%A9sum%C3%A9.pdf"),
     Case("url-legacy-escape", (), name="caf%E9.txt"),
     Case("redirect", ((CD, A),), redirect=True),
@@ -213,6 +215,13 @@ HTTP_CLIENT_REFUSES_MANY_LINES = {
 # Where a library reads the header lines otherwise than Chromium, or refuses
 # the response: by case, what each library gives instead.
 LIBRARY_DIFFERENCES: dict[str, dict[str, HandedOver | Refused]] = {
+    # A space or a tab before the colon makes no header line to http.client's
+    # email parser, which ends the headers there, nor to h11 or aiohttp.
+    "space-and-tab-before-the-colon": {
+        **dict.fromkeys(HTTP_CLIENT, HandedOver(())),
+        **H11_REFUSES,
+        **AIOHTTP_REFUSES,
+    },
     "folded-with-a-lone-cr": {**H11_REFUSES, **AIOHTTP_REFUSES},
     # aiohttp keeps the spaces and tabs at the start of the next line.
     "folded-with-a-tab-in-quotes": dict.fromkeys(

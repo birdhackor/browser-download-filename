@@ -4,14 +4,16 @@
 
 ## 讀取標頭行 {#reading-header-lines}
 
-Chrome 先把回應的標頭當成收到的位元組來讀，之後才讀個別的標頭。本套件也用同樣的方式讀每一個標頭值：把它當成該行標頭在冒號之後、照送出時原樣的其餘部分。所以值裡可以有換行；HTTP 早已不建議在標頭裡換行：
+這一節說的是 Chrome 怎麼讀 HTTP/1.1 回應的標頭，瀏覽器測試驗證的也是這種回應。Chrome 先把標頭當成收到的位元組來讀，之後才讀個別的標頭。本套件也用同樣的方式讀每一個標頭值：把它當成該行標頭在冒號之後、照送出時原樣的其餘部分。所以值裡可以有換行；HTTP 早已不建議在標頭裡換行：
 
 - **空行結束標頭。** 一個 LF、可有可無的一個 CR，再接一個 LF，構成空行，之後的位元組是內容。
 - **以空白或 tab 開頭的行延續這個標頭。** 換行和該行開頭的空白與 tab 換成一個空白接上去；前一行結尾的空白與 tab 保留。所以 `filename="a \r\n b.pdf"` 的檔名是 `a  b.pdf`，中間有兩個空白。
 - **其他的行是另一行標頭**，所以這個值在它前面的換行處結束。只有 CR 和 LF 會換行：垂直 tab（VT）和換頁（FF）是值的一部分，也不會開始一個延續的行。
 - **標頭裡任何地方有 NUL**（不論在名稱還是值裡），Chrome 就會拒絕整個回應（`ERR_INVALID_HTTP_RESPONSE`），就像它拒絕 Content-Disposition 的值彼此不同的回應一樣（見[讀取 Content-Disposition](#reading-content-disposition)）。`parse_content_disposition` 用 `blocks_download` 回報這種情況，`suggested_filename` 照樣決定檔名。空行之後的 NUL 屬於內容，不影響結果。
 
-本套件一次讀一個值，所以值在線上構成的標頭行，並不是每一行都照 Chrome 的方式讀（見[移植的限制](#limits-of-the-port)）。
+每個名稱都當成一行標頭的名稱、也就是第一個冒號之前的那一段，照 Chrome 的方式比對：去掉結尾的空白和 tab 之後比對，不分 ASCII 大小寫，所以 `Content-Disposition \t` 就是 Content-Disposition。名稱是空的、以空白或 tab 開頭，或去掉結尾的空白和 tab 之後不是 token 時，配對不到任何標頭，就像 Chrome 略過這樣的一行。去掉的只有空白和 tab，所以結尾是其他控制字元（例如垂直 tab）的名稱不是 token。
+
+本套件把每個名稱和每個值分開來讀，所以它們在線上構成的標頭行，並不是每一行都照 Chrome 的方式讀（見[移植的限制](#limits-of-the-port)）。
 
 ## 讀取 Content-Disposition {#reading-content-disposition}
 
@@ -83,6 +85,7 @@ Chrome 先把回應的標頭當成收到的位元組來讀，之後才讀個別�
 - **被拒收的回應。** Content-Disposition 的值彼此不同，或標頭裡有 NUL 時，Chrome 會拒絕這個回應（見[讀取 Content-Disposition](#reading-content-disposition)和[讀取標頭行](#reading-header-lines)），`blocks_download` 會回報這兩種情況。Chrome 拒絕回應還有本套件不檢查的其他原因，例如重複出現、值又不同的 Location 標頭。不論是哪一種，`suggested_filename` 都照樣給出檔名。
 - **不是線上原樣的標頭行。** 本套件把收到的標頭當成 Chrome 收到的那些行來讀，所以標頭不是線上原樣時，檔名可能不同：HTTP 函式庫改動過標頭行，或沒有用 `headers_encoding` 就傳入字串（見[從 HTTP 函式庫傳入標頭](usage.md#pass-the-headers-from-your-http-library)）；以及只給 `content_type`、沒給其他標頭，因而少了 X-Content-Type-Options（見[依 Content-Type 補副檔名](usage.md#add-an-extension-from-the-content-type)）。
 - **值裡的標頭行。** 本套件分開讀每一個標頭值（見[讀取標頭行](#reading-header-lines)）。值裡的換行後面接著另一行標頭時，這個值在換行處結束，但本套件不會像 Chrome 那樣把那一行讀成標頭：在 `attachment; filename=a.pdf\rContent-Disposition: attachment; filename=b.pdf` 裡，它看不到第二個 Content-Disposition，而 Chrome 會因此拒絕這個回應。值裡的空行，或值結尾的 LF（它跟後面的換行構成空行），會在線上結束標頭；本套件在那裡結束這個值，但仍會繼續讀之後的標頭行。[使用方式](usage.md#pass-the-headers-from-your-http-library)介紹的 HTTP 函式庫會把這種行切成各自獨立的標頭行、在空行處結束標頭，或拒絕這個回應，所以只有自己組出標頭行時才需要注意。
+- **名稱含冒號或換行，或以空白或 tab 開頭。** 本套件把每個名稱當成一行標頭的名稱來比對（見[讀取標頭行](#reading-header-lines)）。在線上，Chrome 在第一個冒號處結束名稱、在 CR 或 LF 處換到另一行，以空白或 tab 開頭的行也可能接到前一行標頭上，所以 Chrome 讀到的標頭可能跟本套件不同：名稱是 `Content-Disposition:attachment; filename=b.txt;x`、值是 `y` 時，Chrome 的檔名是 `b.txt`，本套件則讀不到 Content-Disposition。名稱裡的換行跟名稱裡的另一個換行、或跟名稱前面的換行構成空行時，會在線上結束標頭，但本套件仍會繼續讀之後的標頭行。
 - **MIME sniffing。** Chrome 檢查內容來決定 MIME 類型時，本套件用宣告的類型，所以副檔名可能跟 Chrome 的不同。只模擬 Chrome 經由網路載入的下載：Playwright 的 `route.fulfill`，以及 `blob:`、`data:`、`file:` 網址，可能得到不同的 MIME 類型。
 - **Windows 和 macOS。** Windows 和 macOS 上的 Chrome 還會詢問系統某個 MIME 類型對應什麼副檔名；本套件只用 Chromium 內建的對照表，Linux 上的 Chrome 也只用這份。`platform="windows"` 加上的是 Windows 的檔名規則，不包括系統的對照表。沒有預設編碼時，對檔名裡不是 UTF-8 的原始位元組，Windows 上的 Chrome 用系統的 ANSI code page 解碼；本套件則跟 Linux 上的 Chrome 一樣把它們丟掉（見[讀取 Content-Disposition](#reading-content-disposition)）。
 - **主機名稱。** Chromium 用 UTS #46 轉換非 ASCII 的主機名稱，本套件用的是 Python 的 IDNA 2003 codec。兩者對某些主機名稱是否合法（以數字結尾的由右至左標籤、超過 63 個字元的標籤）以及主機名稱的 ASCII 形式（`ß` 和 `ς`）看法不同。這只影響主機名稱含非 ASCII 字元的網址。requests、httpx、httpx2 和 aiohttp 在 `response.url` 裡給的都是 ASCII 形式的主機名稱，`urllib.request` 則照請求時的網址原樣給出。

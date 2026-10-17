@@ -109,6 +109,112 @@ def test_non_ascii_header_names_never_raise_and_are_not_content_disposition(
     assert suggested_filename(headers, url=URL) == "a.txt"
 
 
+# --- Header names as Chromium reads them -------------------------------------
+
+PAGE = "https://example.com/page"
+NOSNIFF = ("X-Content-Type-Options", b"nosniff")
+
+# The three headers the package looks up: a value for a line with the header's
+# name, the other lines of the response, and the name that a URL ending in /page
+# gets when that line counts and when it does not. Content-Type comes with
+# nosniff, so that without its line the type is text/plain. Without its line,
+# X-Content-Type-Options leaves Chrome to sniff the body, and the package then
+# uses the declared type, which is none here.
+LOOKED_UP: dict[str, tuple[bytes, list[tuple[str, bytes]], str, str]] = {
+    "Content-Disposition": (A, [], "a.txt", "page"),
+    "Content-Type": (b"text/html", [NOSNIFF], "page.html", "page.txt"),
+    "X-Content-Type-Options": (b"nosniff", [], "page.txt", "page"),
+}
+
+
+def _name_from(header: str, name: str | bytes) -> str:
+    """The name for /page when the line of this header has this name."""
+    value, others, _, _ = LOOKED_UP[header]
+    lines: list[tuple[str | bytes, bytes]] = [(name, value), *others]
+    return suggested_filename(lines, url=PAGE, platform="posix")
+
+
+@pytest.mark.parametrize("end", [" ", "\t", " \t", "\t \t "], ids=repr)
+@pytest.mark.parametrize("header", LOOKED_UP)
+def test_a_name_matches_without_the_spaces_and_tabs_at_its_end(header: str, end: str) -> None:
+    matched = LOOKED_UP[header][2]
+    name = header + end
+    for given in (name, name.upper(), name.encode("ascii")):
+        assert _name_from(header, given) == matched
+    if header == "Content-Disposition":
+        assert parse_content_disposition([(name, A)]) == ContentDisposition("attachment", "a.txt")
+
+
+@pytest.mark.parametrize("name", ["", b"", " {}", "\t{}", " {} ", "\t{}\t", "  "], ids=repr)
+@pytest.mark.parametrize("header", LOOKED_UP)
+def test_a_name_that_is_empty_or_starts_with_a_space_or_a_tab_matches_no_header(
+    header: str, name: str | bytes
+) -> None:
+    given = name.format(header) if isinstance(name, str) else name
+    assert _name_from(header, given) == LOOKED_UP[header][3]
+    # The line is skipped: it holds no Content-Disposition value either.
+    headers: list[tuple[str | bytes, bytes]] = [(given, B), ("Content-Disposition", A)]
+    assert parse_content_disposition(headers) == ContentDisposition("attachment", "a.txt")
+
+
+@pytest.mark.parametrize(
+    "name",
+    # TrimLWS removes only spaces and tabs, so a vertical tab, a form feed, a
+    # CR or a LF stays at the end of the name. None of them is a token byte,
+    # and neither is a space inside the name or a separator such as "/" or ":".
+    ["{}\x0b", "{}\x0c", "{}\r", "{}\n", "{}\x0b ", "{}\x0c\t", "{} x", "{}/x", "{}:x", "[{}]"],
+    ids=repr,
+)
+@pytest.mark.parametrize("header", LOOKED_UP)
+def test_a_name_that_is_not_a_token_once_trimmed_matches_no_header(header: str, name: str) -> None:
+    given = name.format(header)
+    assert _name_from(header, given) == LOOKED_UP[header][3]
+    assert _name_from(header, given.encode("ascii")) == LOOKED_UP[header][3]
+    headers: list[tuple[str | bytes, bytes]] = [(given, B), ("Content-Disposition", A)]
+    assert parse_content_disposition(headers) == ContentDisposition("attachment", "a.txt")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [" X-No\0te", "\tX-Note\0", "X-No\0te ", "X-Note\0\t", " Content-Disposition\0 "],
+    ids=repr,
+)
+def test_a_nul_in_a_name_blocks_the_download_even_if_chromium_skips_the_line(name: str) -> None:
+    # Chromium looks for a NUL in the whole head of the response before it
+    # reads any line, so the name counts as it was given, untrimmed.
+    for given in (name, name.encode("ascii")):
+        headers: list[tuple[str | bytes, bytes]] = [(given, b"a"), ("Content-Disposition", A)]
+        assert parse_content_disposition(headers) == ContentDisposition("attachment", "a.txt", True)
+        # suggested_filename names the file all the same.
+        assert suggested_filename(headers, url=URL) == "a.txt"
+
+
+@pytest.mark.parametrize("name", ["", " X-Note", "X Note", "Content-Disposition\x0b"], ids=repr)
+def test_the_value_of_a_line_that_chromium_skips_is_still_read(name: str) -> None:
+    # Chromium refuses a response with a NUL anywhere in its head, before it
+    # reads any line.
+    headers = [(name, b"a\0b"), ("Content-Disposition", A)]
+    assert parse_content_disposition(headers) == ContentDisposition("attachment", "a.txt", True)
+    # A value of the wrong type, or a str that headers_encoding cannot encode,
+    # is the caller's error whatever the name.
+    wrong_type: object = [(name, 5)]
+    with pytest.raises(TypeError, match="header value"):
+        parse_content_disposition(wrong_type)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="headers_encoding"):
+        suggested_filename([(name, "中")], headers_encoding="latin-1")
+
+
+def test_values_that_differ_block_the_download_under_names_that_match_once_trimmed() -> None:
+    headers = [("Content-Disposition ", A), ("Content-Disposition", B)]
+    assert parse_content_disposition(headers) == ContentDisposition("attachment", "a.txt", True)
+    assert suggested_filename(headers, url=URL) == "a.txt"
+    tabbed = [("Content-Disposition\t", A), ("content-disposition \t", B)]
+    assert parse_content_disposition(tabbed) == ContentDisposition("attachment", "a.txt", True)
+    # The same value on both lines does not.
+    same = [("Content-Disposition \t", A), ("Content-Disposition", A)]
+    assert parse_content_disposition(same) == ContentDisposition("attachment", "a.txt")
+
+
 def test_lines_keep_their_order() -> None:
     headers: list[tuple[str, str | bytes]] = [
         ("Content-Disposition", B),

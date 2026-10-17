@@ -9,7 +9,8 @@ reads one header value at a time, so each case is written here as the value
 of one header line, with everything that follows it on the wire up to the end
 of the headers, and the value Chromium assembles for that line. Cases about
 the status line, which the package never sees, and about header names that
-run over two lines, which a (name, value) pair cannot hold, are left out.
+run over two lines, which the package reads as one name (see "Limits of the
+port" in docs/en/behavior.md), are left out.
 """
 
 from __future__ import annotations

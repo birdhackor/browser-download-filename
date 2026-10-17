@@ -191,12 +191,13 @@ them as Chrome does:
 - **Lines that are not header lines.** requests and `urllib.request` stop
   reading the headers at a line they cannot read as a header line, and lose
   the header lines after it: text without a colon after a line break in a
-  value, which Chrome skips; a header name with a NUL in it, or a line that
-  starts with a NUL, for which Chrome refuses the response; and a line of
-  nothing but CRs, such as the one that a CR at the end of a value makes with
-  the line break after it, which is no blank line to Chrome. aiohttp's Python
-  parser also ends the headers at a line of CRs. httpx2, httpx and aiohttp
-  refuse a line that is not a header line.
+  value, which Chrome skips; a line with spaces or tabs between the name and
+  the colon, which Chrome reads as a header; a header name with a NUL in it,
+  or a line that starts with a NUL, for which Chrome refuses the response; and
+  a line of nothing but CRs, such as the one that a CR at the end of a value
+  makes with the line break after it, which is no blank line to Chrome.
+  aiohttp's Python parser also ends the headers at a line of CRs. httpx2,
+  httpx and aiohttp refuse a line that is not a header line.
 - **Lone CRs.** A CR that no LF follows breaks the line, for Chrome as for
   requests and `urllib.request`. httpx2, httpx and aiohttp's C parser refuse
   the response; aiohttp's Python parser drops the CRs at the end of a line and
@@ -328,9 +329,10 @@ that are not UTF-8, has no charset of its own. Chrome decodes it with the
 browser's default text encoding, a setting that follows the language of the
 browser: windows-1252 for English, Big5 for Traditional Chinese, GBK for
 Simplified Chinese, Shift_JIS for Japanese and so on. DevTools and Playwright
-use no fallback, and neither does this package by default; Chromium on Linux
-then drops the name and falls back to the URL. To get the name Chrome would
-save, pass the encoding as `fallback_charset`:
+use no fallback, and neither does this package by default (for what then
+happens to such bytes in a `filename`, see [Reading
+Content-Disposition](behavior.md#reading-content-disposition)). To get the
+name Chrome would save, pass the encoding as `fallback_charset`:
 
 ```pycon
 >>> header = b'attachment; filename="caf\xe9.txt"'

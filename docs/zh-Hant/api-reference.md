@@ -63,7 +63,7 @@ HeadersLike = SupportsHeaderItems | Iterable[tuple[str | bytes, HeaderValue]]
 - 有 `items()` 方法的物件（`SupportsHeaderItems`），例如 dict、`urllib.request` 以 `response.headers` 給出的 `http.client.HTTPMessage`、requests 以 `response.raw.headers` 給出的 urllib3 標頭物件，或 requests、httpx 和 httpx2 的 `response.headers`；本套件會呼叫 `items()`；
 - 其他情況下，由 `(名稱, 值)` 配對組成的 iterable，例如由 tuple 組成的 list、httpx 和 httpx2 的 `response.headers.raw`，或 aiohttp 的 `response.raw_headers`。
 
-名稱是字串或位元組，比對時不分 ASCII 大小寫。值（`HeaderValue`）是字串或位元組，或由它們組成的 list 或 tuple（每個元素是一行標頭）。標頭行保持原本的順序，重複的行都會算進去。標頭只會被走訪一次，所以 generator 也可以。
+名稱是字串或位元組，比對方式見[讀取標頭行](behavior.md#reading-header-lines)。值（`HeaderValue`）是字串或位元組，或由它們組成的 list 或 tuple（每個元素是一行標頭）。標頭行保持原本的順序，重複的行都會算進去。標頭只會被走訪一次，所以 generator 也可以。
 
 每個值是該行標頭照送出時原樣的其餘部分。值裡可以有換行，照 Chrome 的方式讀：以空白或 tab 開頭的行會接上去，其他的行或空行則結束這個值（見[讀取標頭行](behavior.md#reading-header-lines)）。`content_disposition`、`content_type` 與 `parse_content_disposition` 收到的值也一樣。
 

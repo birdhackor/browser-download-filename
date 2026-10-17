@@ -541,6 +541,38 @@ RAW_LINE_CASES: list[BrowserCase] = [
     _probe("nosniff-folded", (b"X-Content-Type-Options", b"\r\n nosniff")),
 ]
 
+# Spaces and tabs between a header name and its colon. Chromium removes them
+# from the end of the name before it looks the header up.
+HEADER_NAME_CASES: list[BrowserCase] = [
+    BrowserCase(
+        "name-with-a-space-and-a-tab-at-the-end",
+        header_lines=(
+            _OCTET_STREAM,
+            NOSNIFF,
+            (b"Content-Disposition \t", b'attachment; filename="a.txt"'),
+        ),
+    ),
+    # Both lines are Content-Disposition, and their values differ, so Chromium
+    # refuses the response.
+    BrowserCase(
+        "name-with-a-space-at-the-end-and-another-value",
+        header_lines=(
+            _OCTET_STREAM,
+            NOSNIFF,
+            (b"Content-Disposition ", b'attachment; filename="a.txt"'),
+            (b"Content-Disposition", b'attachment; filename="b.txt"'),
+        ),
+    ),
+    _probe(
+        "content-type-name-with-a-space-and-a-tab-at-the-end",
+        (b"Content-Type \t", b"text/html"),
+        NOSNIFF,
+    ),
+    _probe(
+        "nosniff-name-with-a-space-and-a-tab-at-the-end", (b"X-Content-Type-Options \t", b"nosniff")
+    ),
+]
+
 
 def charset_label_cases() -> list[BrowserCase]:
     """filename*=<label>''ABC.txt for labels Chromium accepts or rejects."""
@@ -829,6 +861,7 @@ def exact_cases() -> list[BrowserCase]:
         + DOWNLOAD_ATTRIBUTE_CASES
         + HEADER_LINE_CASES
         + RAW_LINE_CASES
+        + HEADER_NAME_CASES
         + charset_label_cases()
         + single_byte_table_cases()
         + multi_byte_cases()
