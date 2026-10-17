@@ -137,8 +137,9 @@ the download code. The package works it out the same way from `headers` and
 
 The package returns the name that Chrome reports to DevTools and Playwright
 when a download starts, except where Chrome sniffs the body for a MIME type
-(see [The MIME type](#the-mime-type)). The file Chrome finally writes can
-differ:
+(see [The MIME type](#the-mime-type)) or refuses the response (see [Reading
+Content-Disposition](#reading-content-disposition)). The file Chrome finally
+writes can differ:
 
 - **Default text encoding.** For raw bytes that are not UTF-8, Chrome uses the
   browser's default text encoding. Pass it as `fallback_charset` (see

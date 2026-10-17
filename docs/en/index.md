@@ -20,10 +20,11 @@ python -m pip install browser-download-filename
 '報告.pdf'
 ```
 
-The result is what Chrome reports to DevTools and Playwright as the download's
-suggested file name, and a safe file name to save under. See
-[Usage](usage.md) for passing the headers from httpx2, httpx, requests, aiohttp
-and `urllib.request`.
+The result is a safe file name to save under, and the name Chrome reports to
+DevTools and Playwright as the download's suggested file name, except where
+Chrome sniffs the body for a MIME type or refuses the response (see [Behavior
+and browser differences](behavior.md)). See [Usage](usage.md) for passing the
+headers from httpx2, httpx, requests, aiohttp and `urllib.request`.
 
 ## Why
 

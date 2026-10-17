@@ -14,15 +14,25 @@ HTTP clients hand you a response, not a file name. The usual ways to get one
 (the standard library's `email` module, RFC 6266 parsers on PyPI) disagree
 with browsers on headers that real servers send: an ASCII fallback before
 `filename*`, raw UTF-8, percent-encoded names, language tags, semicolons
-inside quotes. This package gives the name Chrome gives.
+inside quotes. On those headers, this package gives the name Chrome gives.
 
 ## Features
 
-- **Chromium's answer** — the header parser, the charset decoders and the
-  file name sanitization are ports of Chromium's code at a pinned revision,
-  tested with Chromium's own unit test cases. CI downloads more than 800 cases
-  with a real Chromium and requires the same name for each one that the
-  headers and the URL decide.
+- **Chromium's answer** — the header parser, the MIME type rules, the
+  charset decoders and the file name sanitization are ports of Chromium's
+  code at a pinned revision, and Chromium's own unit test cases are part of
+  the tests. CI downloads more than 800 cases with a real Chromium and
+  requires the same name for each one that the headers and the URL decide;
+  where Chrome sniffs the body for a MIME type, it checks the names listed
+  for each case instead.
+- **The whole response** — pass all the headers of a response. As in Chrome,
+  the first Content-Disposition value names the file, and the Content-Type
+  lines and X-Content-Type-Options give the MIME type, which can add an
+  extension to a name that does not come from Content-Disposition. Where
+  Chrome sniffs the body for another type, the package, which never sees the
+  body, keeps the declared one. `blocks_download` tells you when Chrome
+  refuses the response instead, for Content-Disposition values that differ
+  or a NUL in the headers.
 - **Bytes or str** — pass the headers as the bytes on the wire, folded lines
   included, or as the strs your HTTP library made of them, such as the Latin-1
   strs of requests, urllib3 and `http.client` or the surrogate-escaped strs of
@@ -35,7 +45,8 @@ inside quotes. This package gives the name Chrome gives.
   separators, control characters and other characters that file systems
   reject replaced. `platform="windows"` adds Windows' rules for reserved
   names, trailing dots and spaces, and shortcut extensions; by default they
-  apply when the code runs on Windows.
+  apply when the code runs on Windows. `sanitize_filename` cleans a name from
+  anywhere else, such as a page title, the same way.
 - **No dependencies** — pure Python, one wheel for every platform: CPython
   3.11+ and PyPy.
 
@@ -63,9 +74,12 @@ ContentDisposition(type='attachment', filename='a;b;c.txt', blocks_download=Fals
 
 `suggested_filename` downloads nothing: it takes the headers of a response and
 its final URL (after redirects), and returns the name Chrome reports to
-DevTools and Playwright as the download's suggested file name. The URL is
-optional: when the headers give no name, Chrome takes the last segment of its
-path. Leave it out if you have no URL. With httpx2:
+DevTools and Playwright as the download's suggested file name, except where
+Chrome sniffs the body for a MIME type or refuses the response; [Behavior and
+browser differences](https://birdhackor.github.io/browser-download-filename/en/behavior/)
+describes these and the other limits. The URL is optional: when the headers
+give no name, Chrome takes the last segment of its path. Leave it out if you
+have no URL. With httpx2:
 
 ```python
 import httpx2

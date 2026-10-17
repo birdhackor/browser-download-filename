@@ -16,7 +16,7 @@ python -m pip install browser-download-filename
 '報告.pdf'
 ```
 
-結果就是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」，也是可以直接拿來存檔的安全檔名。從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭的寫法，見[使用方式](usage.md)。
+結果是可以直接拿來存檔的安全檔名，也是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」；例外是 Chrome 檢查內容來決定 MIME 類型，或拒絕這個回應的時候（見[行為與瀏覽器差異](behavior.md)）。從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭的寫法，見[使用方式](usage.md)。
 
 ## 為什麼需要它 {#why}
 

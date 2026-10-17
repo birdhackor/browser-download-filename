@@ -56,7 +56,7 @@ Chrome 先把回應的標頭當成收到的位元組來讀，之後才讀個別�
 
 ## Chrome 在這之外還做的事 {#what-chrome-does-beyond-this}
 
-本套件回傳的是下載開始時，Chrome 回報給 DevTools 和 Playwright 的檔名；Chrome 檢查內容來決定 MIME 類型時例外（見 [MIME 類型](#the-mime-type)）。Chrome 最後實際寫入的檔案，名稱可能不同：
+本套件回傳的是下載開始時，Chrome 回報給 DevTools 和 Playwright 的檔名；Chrome 檢查內容來決定 MIME 類型（見 [MIME 類型](#the-mime-type)），或拒絕這個回應（見[讀取 Content-Disposition](#reading-content-disposition)）時例外。Chrome 最後實際寫入的檔案，名稱可能不同：
 
 - **預設文字編碼。** 遇到不是 UTF-8 的原始位元組，Chrome 會用瀏覽器的預設文字編碼解碼。請把它傳給 `fallback_charset`（見[使用方式](usage.md#decode-legacy-charsets)）。
 - **已存在的檔案。** Chrome 會替檔名編號，例如 `report (1).pdf`。
