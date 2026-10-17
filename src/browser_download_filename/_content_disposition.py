@@ -276,7 +276,7 @@ def parse_content_disposition(
     fallback_charset: str | None = None,
     headers_encoding: str | None = None,
 ) -> ContentDisposition:
-    """Parse Content-Disposition exactly as Chromium does.
+    """Parse Content-Disposition as Chromium's HttpContentDisposition does.
 
     ``value`` is one header value, as bytes or as the str an HTTP library
     produced, or a response's headers, as a mapping or an iterable of

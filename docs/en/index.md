@@ -21,10 +21,10 @@ python -m pip install browser-download-filename
 ```
 
 The result is a safe file name to save under, and the name Chrome reports to
-DevTools and Playwright as the download's suggested file name, except where
-Chrome sniffs the body for a MIME type or refuses the response (see [Behavior
-and browser differences](behavior.md)). See [Usage](usage.md) for passing the
-headers from httpx2, httpx, requests, aiohttp and `urllib.request`.
+DevTools and Playwright as the download's suggested file name, except in the
+cases listed under [Limits of the port](behavior.md#limits-of-the-port). See
+[Usage](usage.md) for passing the headers from httpx2, httpx, requests,
+aiohttp and `urllib.request`.
 
 ## Why
 
@@ -72,12 +72,11 @@ supports CPython 3.11 and later, and PyPy.
 The parser, the charset decoders and the file name rules are ports of
 Chromium's code at a pinned revision, and Chromium's own unit test cases are
 part of the test suite. CI also downloads more than 800 cases with a real
-Chromium and requires the same name for every one that the headers and the URL
-decide; where Chrome sniffs the body for a MIME type, it checks the names
-listed for each case instead. [How it is checked](verification.md) describes
-the tests; [Behavior and browser
-differences](behavior.md) lists what Chrome does that this package leaves to
-you, such as numbering files that already exist.
+Chromium and checks every result; [How it is checked](verification.md)
+describes the tests. [Behavior and browser differences](behavior.md) lists
+what Chrome does that this package leaves to you, such as numbering files that
+already exist, and, under [Limits of the port](behavior.md#limits-of-the-port), where
+the package's name can differ from Chrome's.
 
 Next: examples are in [Usage](usage.md); the full API is in [API
 reference](api-reference.md).

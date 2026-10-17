@@ -136,10 +136,8 @@ the download code. The package works it out the same way from `headers` and
 ## What Chrome does beyond this
 
 The package returns the name that Chrome reports to DevTools and Playwright
-when a download starts, except where Chrome sniffs the body for a MIME type
-(see [The MIME type](#the-mime-type)) or refuses the response (see [Reading
-Content-Disposition](#reading-content-disposition)). The file Chrome finally
-writes can differ:
+when a download starts, except in the cases listed under [Limits of the
+port](#limits-of-the-port). The file Chrome finally writes can differ:
 
 - **Default text encoding.** For raw bytes that are not UTF-8, Chrome uses the
   browser's default text encoding. Pass it as `fallback_charset` (see
@@ -147,12 +145,7 @@ writes can differ:
 - **Existing files.** Chrome numbers the name, as in `report (1).pdf`.
 - **Long names.** Chrome shortens a name that is too long for the file system,
   keeping the extension.
-- **The operating system.** Chrome on Windows and macOS also asks the system
-  which extension a MIME type has, while the package uses Chromium's built-in
-  table, which is all Chrome on Linux uses. For raw non-UTF-8 names without a
-  default encoding, Chrome on Windows decodes with the system's ANSI code page
-  and Chrome on macOS replaces the bytes with U+FFFD; the package drops them,
-  as Chrome on Linux does. ChromeOS also normalizes names to NFC.
+- **ChromeOS.** ChromeOS normalizes the name to NFC.
 - **Everything around the name**: the Save As dialog, Safe Browsing and
   dangerous file warnings, extensions that rename downloads, and enterprise
   policies.
@@ -184,6 +177,21 @@ for 423 and WebKit on macOS for 309.
 
 ## Limits of the port
 
+- **Refused responses.** Chrome refuses a response whose Content-Disposition
+  values differ or whose headers hold a NUL (see [Reading
+  Content-Disposition](#reading-content-disposition) and [Reading header
+  lines](#reading-header-lines)), which `blocks_download` reports. It also
+  refuses responses for reasons that the package does not look for, such as
+  Location headers that are repeated with different values. In every case,
+  `suggested_filename` names the file all the same.
+- **Headers that are not the lines on the wire.** The package reads the
+  headers it is given as the lines that Chrome received, so the name can
+  differ where they are not: where an HTTP library changed the lines, or
+  where strs are passed without `headers_encoding` (see [Pass the headers
+  from your HTTP library](usage.md#pass-the-headers-from-your-http-library)),
+  and where a `content_type` is given without the other headers, which leaves
+  out X-Content-Type-Options (see [Add an extension from the
+  Content-Type](usage.md#add-an-extension-from-the-content-type)).
 - **Header lines inside a value.** The package reads each header value on its
   own (see [Reading header lines](#reading-header-lines)). A line break in a
   value before another header line ends the value, but the package does not
@@ -197,15 +205,18 @@ for 423 and WebKit on macOS for 309.
   shows make header lines of their own out of such lines, end the headers at
   the blank line, or refuse the response, so this matters only for header
   lines that you put together yourself.
-- **Other reasons to refuse a response.** Chrome refuses a response for more
-  reasons than the two that `blocks_download` reports, such as Location
-  headers that are repeated with different values. The package does not look
-  for them, and `suggested_filename` names the file all the same.
 - **MIME sniffing.** Where Chrome sniffs the body for a MIME type, the package
   uses the declared one, so the extension can differ from Chrome's. Only
   downloads that Chrome loads over the network are modeled: Playwright's
   `route.fulfill`, and `blob:`, `data:` and `file:` URLs, can give another
   MIME type.
+- **Windows and macOS.** Chrome on Windows and macOS also asks the system
+  which extension a MIME type has, while the package uses Chromium's built-in
+  table, which is all Chrome on Linux uses: `platform="windows"` adds
+  Windows' rules for names, not the system's table. For raw non-UTF-8 names
+  without a default encoding, Chrome on Windows decodes with the system's ANSI
+  code page and Chrome on macOS replaces the bytes with U+FFFD; the package
+  drops them, as Chrome on Linux does.
 - **Hosts.** Chromium converts a non-ASCII host with UTS #46; the package uses
   Python's IDNA 2003 codec. They can disagree on whether a host is valid (a
   right-to-left label that ends in a digit, a label longer than 63 characters)

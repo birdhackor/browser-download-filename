@@ -270,7 +270,7 @@ scheduled workflow 只在 default branch 執行，public repository 60 天沒有
 
 `docs/en` 與 `docs/zh-Hant` 各自是一個 zensical 站（`zensical.en.toml`、
 `zensical.zh-Hant.toml`），`.github/workflows/docs.yml` 在 main 的 `docs/**` 有變動時建置兩個
-語言、寫入根目錄的轉址頁，部署到 GitHub Pages。兩種語言的頁面一一對應；中文標題用
+語言（`--strict`：連到不存在的頁面或 anchor 會讓建置失敗、不部署）、寫入根目錄的轉址頁，部署到 GitHub Pages。兩種語言的頁面一一對應；中文標題用
 `{#...}` 指定跟英文相同的 anchor，讓兩邊的連結一致。本機預覽：
 
 ```sh

@@ -51,6 +51,13 @@ uv run --no-project --python 3.15 scripts/generate_data.py --check
 uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
 ```
 
+`docs.yml` 用 `--strict` 建置：連到不存在的頁面或 anchor 會讓建置失敗。改了文件就在本機用同樣的方式建置兩個語言（輸出在 `site/`，已列入 `.gitignore`）：
+
+```sh
+uvx --python 3.15 zensical==0.0.70 build --config-file zensical.en.toml --clean --strict
+uvx --python 3.15 zensical==0.0.70 build --config-file zensical.zh-Hant.toml --clean --strict
+```
+
 ## 架構
 
 公開 API 只有 `__init__.py` 匯出的 `parse_content_disposition`、`suggested_filename`、`sanitize_filename`、`ContentDisposition`、`HeadersLike` 與 `__version__`，其餘都是私有模組。移植的函式沿用 Chromium 的名字（轉成 snake_case），或在 docstring 寫出對應的 Chromium 函式（如 `HttpUtil::TrimLWS`、`GetSuggestedFilenameImpl`）；要對照上游，就搜尋那個名字。

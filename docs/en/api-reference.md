@@ -21,7 +21,9 @@ def suggested_filename(
 ```
 
 The file name Chromium suggests for a download (`net::GetSuggestedFilename`),
-which is the name Chrome reports to DevTools and Playwright. It is never empty.
+which is the name Chrome reports to DevTools and Playwright, except in the
+cases listed under [Limits of the port](behavior.md#limits-of-the-port). It is never
+empty.
 
 | Parameter | Meaning |
 | --- | --- |
@@ -33,7 +35,7 @@ which is the name Chrome reports to DevTools and Playwright. It is never empty.
 | `default_name` | The name when nothing else gives one; it cannot be empty. With `None`, the URL's host is tried first, and `download` is the last resort. |
 | `fallback_charset` | A charset for raw bytes that are not UTF-8, in `filename` and in the URL's path; Chrome uses the browser's default text encoding here. A label Chromium knows, such as `"windows-1252"` or `"big5"`. |
 | `headers_encoding` | The Python codec your HTTP library decoded the headers with, such as `"latin-1"` for requests or `response.headers.encoding` for httpx. Every str header value, in `headers`, `content_disposition` and `content_type`, is encoded back to bytes with it; bytes are used as they are. `None` guesses the bytes instead (see [Inputs as str](#inputs-as-str)). It is a Python codec name, not a charset label: `"latin-1"` is ISO-8859-1 here, not windows-1252. |
-| `platform` | `"posix"` for Chrome's rules on Linux, macOS and other POSIX systems, `"windows"` for its rules on Windows. `None`, the default, picks `"windows"` when the call runs on Windows (`sys.platform == "win32"`) and `"posix"` elsewhere. |
+| `platform` | `"posix"` for Chrome's rules on Linux, macOS and other POSIX systems, `"windows"` for its rules on Windows. `None`, the default, picks `"windows"` when the call runs on Windows (`sys.platform == "win32"`) and `"posix"` elsewhere. It chooses Chrome's rules for names, not the system's MIME types (see [Limits of the port](behavior.md#limits-of-the-port)). |
 
 ## sanitize_filename
 

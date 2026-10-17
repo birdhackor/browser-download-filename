@@ -359,12 +359,14 @@ def suggested_filename(
     """The filename Chromium suggests for a download. Never empty.
 
     This is net::GetSuggestedFilename, the name Chrome reports to DevTools
-    (and Playwright) when a download starts: the Content-Disposition
-    filename, else ``download_attribute`` (an ``<a download>`` value), else
-    the last segment of the URL path, else ``default_name`` (or, if that is
-    None, the URL's host and then ``"download"``), then sanitized for use as
-    a file name. A name that did not come from Content-Disposition can also
-    get its extension from the response's MIME type.
+    (and Playwright) when a download starts, except in the cases that the
+    documentation lists under "Limits of the port". It is the
+    Content-Disposition filename, else ``download_attribute`` (an
+    ``<a download>`` value), else the last segment of the URL path, else
+    ``default_name`` (or, if that is None, the URL's host and then
+    ``"download"``), then sanitized for use as a file name. A name that did
+    not come from Content-Disposition can also get its extension from the
+    response's MIME type.
 
     ``headers`` are the response's headers, as a mapping or an iterable of
     (name, value) pairs, each value read as Chromium reads the rest of its

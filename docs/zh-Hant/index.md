@@ -16,7 +16,7 @@ python -m pip install browser-download-filename
 '報告.pdf'
 ```
 
-結果是可以直接拿來存檔的安全檔名，也是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」；例外是 Chrome 檢查內容來決定 MIME 類型，或拒絕這個回應的時候（見[行為與瀏覽器差異](behavior.md)）。從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭的寫法，見[使用方式](usage.md)。
+結果是可以直接拿來存檔的安全檔名，也是 Chrome 回報給 DevTools 和 Playwright 的「建議檔名」，[移植的限制](behavior.md#limits-of-the-port)列出的情況除外。從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭的寫法，見[使用方式](usage.md)。
 
 ## 為什麼需要它 {#why}
 
@@ -45,6 +45,6 @@ python -m pip install browser-download-filename
 
 ## 有多精確 {#how-exact-it-is}
 
-標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 800 多個案例：檔名由標頭和網址決定的案例，要求每一個都完全相同；Chrome 會檢查內容來決定 MIME 類型的案例，則改為檢查逐案列出的檔名。測試的細節見[如何驗證](verification.md)；Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)。
+標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 800 多個案例，檢查每一個結果；測試的細節見[如何驗證](verification.md)。Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)；本套件的檔名在哪些情況下可能跟 Chrome 不同，見其中的[移植的限制](behavior.md#limits-of-the-port)。
 
 下一步：範例在[使用方式](usage.md)，完整的 API 在 [API 參考](api-reference.md)。

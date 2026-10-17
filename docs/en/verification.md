@@ -48,8 +48,12 @@ There are 831 cases:
 - 150 headers made by randomly mutating the others.
 
 The cases come in two sets, listed case by case in `tests/browser/corpus.py`.
-In the exact set, the headers and the URL decide the name, and Chromium must
-give the package's name for every case, or CI fails. The limited set holds
+In the exact set (`exact_cases()`), the headers and the URL decide the name,
+and for every case Chromium must give what `chromium_expectation` in
+`tests/browser/test_browsers.py` predicts from the package's rules, or CI
+fails: the package's name, or, where the package says Chrome refuses the
+response, no download, or a name from the `download` attribute and the URL
+alone. The limited set holds
 responses whose body Chromium sniffs for a MIME type, where the package uses
 the declared type instead (see [The MIME type](behavior.md#the-mime-type)):
 for each case, Chromium must start the download and give the name listed for

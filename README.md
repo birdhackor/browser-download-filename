@@ -21,10 +21,9 @@ inside quotes. On those headers, this package gives the name Chrome gives.
 - **Chromium's answer** — the header parser, the MIME type rules, the
   charset decoders and the file name sanitization are ports of Chromium's
   code at a pinned revision, and Chromium's own unit test cases are part of
-  the tests. CI downloads more than 800 cases with a real Chromium and
-  requires the same name for each one that the headers and the URL decide;
-  where Chrome sniffs the body for a MIME type, it checks the names listed
-  for each case instead.
+  the tests. CI downloads more than 800 cases with a real Chromium and checks
+  every result ([How it is
+  checked](https://birdhackor.github.io/browser-download-filename/en/verification/)).
 - **The whole response** — pass all the headers of a response. As in Chrome,
   the first Content-Disposition value names the file, and the Content-Type
   lines and X-Content-Type-Options give the MIME type, which can add an
@@ -74,12 +73,11 @@ ContentDisposition(type='attachment', filename='a;b;c.txt', blocks_download=Fals
 
 `suggested_filename` downloads nothing: it takes the headers of a response and
 its final URL (after redirects), and returns the name Chrome reports to
-DevTools and Playwright as the download's suggested file name, except where
-Chrome sniffs the body for a MIME type or refuses the response; [Behavior and
-browser differences](https://birdhackor.github.io/browser-download-filename/en/behavior/)
-describes these and the other limits. The URL is optional: when the headers
-give no name, Chrome takes the last segment of its path. Leave it out if you
-have no URL. With httpx2:
+DevTools and Playwright as the download's suggested file name, except in the
+cases listed under [Limits of the
+port](https://birdhackor.github.io/browser-download-filename/en/behavior/#limits-of-the-port).
+The URL is optional: when the headers give no name, Chrome takes the last
+segment of its path. Leave it out if you have no URL. With httpx2:
 
 ```python
 import httpx2

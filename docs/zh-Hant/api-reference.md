@@ -19,7 +19,7 @@ def suggested_filename(
 ) -> str
 ```
 
-Chromium 替一次下載建議的檔名（`net::GetSuggestedFilename`），也就是 Chrome 回報給 DevTools 和 Playwright 的檔名。一定不是空字串。
+Chromium 替一次下載建議的檔名（`net::GetSuggestedFilename`），也就是 Chrome 回報給 DevTools 和 Playwright 的檔名，[移植的限制](behavior.md#limits-of-the-port)列出的情況除外。一定不是空字串。
 
 | 參數 | 意義 |
 | --- | --- |
@@ -31,7 +31,7 @@ Chromium 替一次下載建議的檔名（`net::GetSuggestedFilename`），也�
 | `default_name` | 沒有任何地方提供檔名時使用的名稱，不能是空字串。若為 `None`，先嘗試網址的主機名稱，最後才用 `download`。 |
 | `fallback_charset` | 用來解碼 `filename` 和網址路徑裡非 UTF-8 原始位元組的字元集；Chrome 在這裡用的是瀏覽器的預設文字編碼。必須是 Chromium 認得的標籤，例如 `"windows-1252"` 或 `"big5"`。 |
 | `headers_encoding` | 你的 HTTP 函式庫把標頭解碼成字串時用的 Python codec，例如 requests 是 `"latin-1"`，httpx 是 `response.headers.encoding`。`headers`、`content_disposition` 和 `content_type` 裡每一個字串形式的標頭值，都用它編碼回位元組；位元組則原樣使用。`None` 表示改用推測的方式還原位元組（見[以字串傳入時](#inputs-as-str)）。這是 Python 的 codec 名稱，不是字元集標籤：這裡的 `"latin-1"` 是 ISO-8859-1，不是 windows-1252。 |
-| `platform` | `"posix"` 採用 Chrome 在 Linux、macOS 等 POSIX 系統上的規則，`"windows"` 採用它在 Windows 上的規則。預設的 `None` 在 Windows 上執行時（`sys.platform == "win32"`）選 `"windows"`，其他系統選 `"posix"`。 |
+| `platform` | `"posix"` 採用 Chrome 在 Linux、macOS 等 POSIX 系統上的規則，`"windows"` 採用它在 Windows 上的規則。預設的 `None` 在 Windows 上執行時（`sys.platform == "win32"`）選 `"windows"`，其他系統選 `"posix"`。它選的是 Chrome 的檔名規則，不包括系統的 MIME 類型對照（見[移植的限制](behavior.md#limits-of-the-port)）。 |
 
 ## sanitize_filename {#sanitize_filename}
 

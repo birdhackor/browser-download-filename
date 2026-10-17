@@ -1,4 +1,4 @@
-"""Name downloaded files exactly as Chromium does.
+"""Name downloaded files the way Chrome does.
 
 :func:`parse_content_disposition` reads a Content-Disposition header the way
 Chromium's HttpContentDisposition does, and :func:`suggested_filename` runs
