@@ -23,10 +23,12 @@ inside quotes. This package gives the name Chrome gives.
   tested with Chromium's own unit test cases. CI downloads more than 800 cases
   with a real Chromium and requires the same name for each one that the
   headers and the URL decide.
-- **Bytes or str** — pass the headers as the bytes on the wire, or as the
-  strs your HTTP library made of them, such as the Latin-1 strs of requests,
-  urllib3 and `http.client` or the surrogate-escaped strs of aiohttp; name the
-  codec as `headers_encoding`, and they are mapped back to the bytes exactly.
+- **Bytes or str** — pass the headers as the bytes on the wire, folded lines
+  included, or as the strs your HTTP library made of them, such as the Latin-1
+  strs of requests, urllib3 and `http.client` or the surrogate-escaped strs of
+  aiohttp; name the codec as `headers_encoding`, and they are mapped back to
+  the bytes exactly. Some libraries join folded lines their own way first; the
+  documentation lists them.
 - **Never raises on a malformed header** — it returns what Chromium makes of
   it.
 - **Safe names** — the result is a single file name, never empty, with path

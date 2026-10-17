@@ -2,9 +2,20 @@
 
 這一頁說明本套件遵循的規則（也就是 Chromium 的規則）、Chrome 在這之外還做了什麼，以及 Firefox 和 Safari 的命名哪裡不同。
 
+## 讀取標頭行 {#reading-header-lines}
+
+Chrome 先把回應的標頭當成收到的位元組來讀，之後才讀個別的標頭。本套件也用同樣的方式讀每一個標頭值：把它當成該行標頭在冒號之後、照送出時原樣的其餘部分。所以值裡可以有換行；HTTP 早已不建議在標頭裡換行：
+
+- **空行結束標頭。** 一個 LF、可有可無的一個 CR，再接一個 LF，構成空行，之後的位元組是內容。
+- **以空白或 tab 開頭的行延續這個標頭。** 換行和該行開頭的空白與 tab 換成一個空白接上去；前一行結尾的空白與 tab 保留。所以 `filename="a \r\n b.pdf"` 的檔名是 `a  b.pdf`，中間有兩個空白。
+- **其他的行是另一行標頭**，所以這個值在它前面的換行處結束。只有 CR 和 LF 會換行：垂直 tab（VT）和換頁（FF）是值的一部分，也不會開始一個延續的行。
+- **標頭裡任何地方有 NUL**（不論在名稱還是值裡），Chrome 就會拒絕整個回應（`ERR_INVALID_HTTP_RESPONSE`），就像它拒絕 Content-Disposition 的值彼此不同的回應一樣（見[讀取 Content-Disposition](#reading-content-disposition)）。`parse_content_disposition` 用 `blocks_download` 回報這種情況，`suggested_filename` 照樣決定檔名。空行之後的 NUL 屬於內容，不影響結果。
+
+本套件一次讀一個值，所以值在線上構成的標頭行，並不是每一行都照 Chrome 的方式讀（見[移植的限制](#limits-of-the-port)）。
+
 ## 讀取 Content-Disposition {#reading-content-disposition}
 
-- **只看第一個值。** 每一行 Content-Disposition 都會在引號外的逗號處切開，檔名取自第一行的第一個值。所以只要引號都有關上，重複的標頭不論是分成好幾行，還是被 HTTP 函式庫用 `, ` 接成一行，結果都一樣。沒關上的引號會一路延續到該行結尾，接成一行時就會吞進後面的值：`attachment; filename="a` 和 `attachment; filename=b` 兩行，檔名是 `a`，而且有兩個不同的值；接成一行則是單一個值，檔名是 `a, attachment; filename=b`。只要有任何一個值跟第一個值不同（去掉前後的空白和 tab 之後逐位元組比較），Chrome 就會拒絕整個回應，什麼都不下載；有 `download` 屬性的連結則會開始一個失敗的下載（見[使用方式](usage.md#several-content-disposition-headers)）。內容不同的重複標頭會這樣，只有一個標頭、但引號外有逗號時也會，例如 `filename=a,b.txt` 或結尾多一個逗號。`parse_content_disposition` 用 `blocks_download` 回報這種情況；`suggested_filename` 照樣用第一個值決定檔名。
+- **只看第一個值。** 每一行 Content-Disposition 都會在引號外的逗號處切開，檔名取自第一行的第一個值。所以只要引號都有關上，重複的標頭不論是分成好幾行，還是被 HTTP 函式庫用 `, ` 接成一行，結果都一樣。沒關上的引號會一路延續到該行結尾，接成一行時就會吞進後面的值：`attachment; filename="a` 和 `attachment; filename=b` 兩行，檔名是 `a`，而且有兩個不同的值；接成一行則是單一個值，檔名是 `a, attachment; filename=b`。只要有任何一個值跟第一個值不同（去掉前後的空白和 tab 之後逐位元組比較），Chrome 就會拒絕整個回應，什麼都不下載；有 `download` 屬性的連結則會開始一個失敗的下載（見[使用方式](usage.md#several-content-disposition-headers)）。內容不同的重複標頭會這樣，只有一個標頭、但引號外有逗號時也會，例如 `filename=a,b.txt` 或結尾多一個逗號。`parse_content_disposition` 用 `blocks_download` 回報這種情況，標頭裡有 NUL 時也是（見[讀取標頭行](#reading-header-lines)）；`suggested_filename` 照樣用第一個值決定檔名。
 - **處置類型。** `inline` 是 inline；`attachment` 和其他任何 token 都是 attachment。不是以 token 開頭的標頭（例如 `filename=report.pdf`）會整個當成參數來讀，類型是 inline，裡面的檔名照樣採用。
 - **參數**由左到右讀，遇到第一個格式錯誤的參數就停止：沒有 `=`、值是空的，或名稱裡有引號。
 - **`filename*` 優先**，不論出現順序，只要能解碼。它的值是 `charset'language'百分比編碼的位元組`（RFC 8187）：語言標記會被忽略；字元集可以是 Chromium 認得的任何一種（`UTF-8`、`ISO-8859-1`、`Shift_JIS`……）；位元組必須是該字元集的合法內容；結果會正規化成 NFC。無法解碼的 `filename*` 會被略過，改用 `filename`。
@@ -69,6 +80,8 @@
 
 ## 移植的限制 {#limits-of-the-port}
 
+- **值裡的標頭行。** 本套件分開讀每一個標頭值（見[讀取標頭行](#reading-header-lines)）。值裡的換行後面接著另一行標頭時，這個值在換行處結束，但本套件不會像 Chrome 那樣把那一行讀成標頭：在 `attachment; filename=a.pdf\rContent-Disposition: attachment; filename=b.pdf` 裡，它看不到第二個 Content-Disposition，而 Chrome 會因此拒絕這個回應。值裡的空行，或值結尾的 LF（它跟後面的換行構成空行），會在線上結束標頭；本套件在那裡結束這個值，但仍會繼續讀之後的標頭行。[使用方式](usage.md#pass-the-headers-from-your-http-library)介紹的 HTTP 函式庫會把這種行切成各自獨立的標頭行、在空行處結束標頭，或拒絕這個回應，所以只有自己組出標頭行時才需要注意。
+- **其他拒收的原因。** Chrome 拒絕回應的原因不只 `blocks_download` 回報的那兩種，例如重複出現、值又不同的 Location 標頭。本套件不檢查這些原因，`suggested_filename` 也照樣給出檔名。
 - **MIME sniffing。** Chrome 檢查內容來決定 MIME 類型時，本套件用宣告的類型，所以副檔名可能跟 Chrome 的不同。只模擬 Chrome 經由網路載入的下載：Playwright 的 `route.fulfill`，以及 `blob:`、`data:`、`file:` 網址，可能得到不同的 MIME 類型。
 - **主機名稱。** Chromium 用 UTS #46 轉換非 ASCII 的主機名稱，本套件用的是 Python 的 IDNA 2003 codec。兩者對某些主機名稱是否合法（以數字結尾的由右至左標籤、超過 63 個字元的標籤）以及主機名稱的 ASCII 形式（`ß` 和 `ς`）看法不同。這只影響主機名稱含非 ASCII 字元的網址。requests、httpx、httpx2 和 aiohttp 在 `response.url` 裡給的都是 ASCII 形式的主機名稱，`urllib.request` 則照請求時的網址原樣給出。
 - **網址是否合法。** 主機名稱不會被當成 IPv4 位址解析，所以 Chromium 因為位址格式錯誤而拒絕的網址，在這裡仍可能得到檔名。瀏覽器能載入的網址，兩邊得到的檔名都相同。

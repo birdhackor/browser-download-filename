@@ -3,6 +3,35 @@
 This page describes the rules the package follows, which are Chromium's, what
 Chrome does beyond them, and where Firefox and Safari name files differently.
 
+## Reading header lines
+
+Chrome reads the headers of a response as the bytes that arrive, before it
+reads any one header. The package reads each header value the same way, as
+the rest of its header line as it was sent, so a value can hold line breaks,
+which HTTP has long deprecated inside a header:
+
+- **A blank line ends the headers.** A line feed, then an optional CR and
+  another line feed make a blank line, and what follows it is the body.
+- **A line that starts with a space or a tab continues the header.** It is
+  joined on with one space, in place of the line break and the spaces and tabs
+  that start the line; the spaces and tabs at the end of the line before it
+  stay. So `filename="a \r\n b.pdf"` names the file `a  b.pdf`, with two
+  spaces.
+- **Any other line is another header line**, so the value ends at the line
+  break before it. Only CR and LF break lines: a vertical tab or a form feed is
+  part of the value, and it does not start a continued line either.
+- **A NUL anywhere in the headers**, in a name or a value, makes Chrome refuse
+  the whole response (`ERR_INVALID_HTTP_RESPONSE`), as it refuses a response
+  whose Content-Disposition values differ (see [Reading
+  Content-Disposition](#reading-content-disposition)).
+  `parse_content_disposition` reports it as `blocks_download`, and
+  `suggested_filename` names the file all the same. A NUL after a blank line
+  is in the body, and changes nothing.
+
+The package reads one value at a time, so it does not read every header line
+that values make on the wire the way Chrome does (see [Limits of the
+port](#limits-of-the-port)).
+
 ## Reading Content-Disposition
 
 - **First value only.** Every Content-Disposition line is split on commas
@@ -20,7 +49,8 @@ Chrome does beyond them, and where Firefox and Safari name files differently.
   [Usage](usage.md#several-content-disposition-headers)). That happens with
   repeated headers that differ, and also with a single header that has a comma
   outside quotes, such as `filename=a,b.txt` or a trailing comma.
-  `parse_content_disposition` reports it as `blocks_download`;
+  `parse_content_disposition` reports it as `blocks_download`, as it reports a
+  NUL in the headers (see [Reading header lines](#reading-header-lines));
   `suggested_filename` names the file from the first value all the same.
 - **Disposition type.** `inline` is inline; `attachment` and any other token
   are attachment. A header that does not start with a token, such as
@@ -153,6 +183,23 @@ for 423 and WebKit on macOS for 309.
 
 ## Limits of the port
 
+- **Header lines inside a value.** The package reads each header value on its
+  own (see [Reading header lines](#reading-header-lines)). A line break in a
+  value before another header line ends the value, but the package does not
+  read that line as a header, as Chrome does: in
+  `attachment; filename=a.pdf\rContent-Disposition: attachment; filename=b.pdf`
+  it misses the second Content-Disposition, for which Chrome refuses the
+  response. A blank line in a value, or a line feed at its end, which makes a
+  blank line with the line break after it, ends the headers on the wire; the
+  package ends the value there, but it goes on to read the header lines after
+  it. The HTTP libraries that [Usage](usage.md#pass-the-headers-from-your-http-library)
+  shows make header lines of their own out of such lines, end the headers at
+  the blank line, or refuse the response, so this matters only for header
+  lines that you put together yourself.
+- **Other reasons to refuse a response.** Chrome refuses a response for more
+  reasons than the two that `blocks_download` reports, such as Location
+  headers that are repeated with different values. The package does not look
+  for them, and `suggested_filename` names the file all the same.
 - **MIME sniffing.** Where Chrome sniffs the body for a MIME type, the package
   uses the declared one, so the extension can differ from Chrome's. Only
   downloads that Chrome loads over the network are modeled: Playwright's

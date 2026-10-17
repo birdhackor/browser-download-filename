@@ -79,7 +79,12 @@ type 的案例自己列出標頭行與內容。
   的 Firefox、Linux 的 WebKit，以及 macOS 的 WebKit（走 Apple 的網路程式碼，最接近 Safari）。
   每次執行的 job summary 與 artifact 就是文件〈行為與瀏覽器差異〉所說的差異清單。
 - 語料在 `tests/browser/corpus.py`：每個案例的 id 必須唯一（`all_cases()` 會檢查），fuzz
-  的 seed 固定，所以每次跑的案例都相同。新增案例時，標頭值不能含 CR、LF 或 NUL。
+  的 seed 固定，所以每次跑的案例都相同。伺服器原樣送出標頭值，值裡的 CR、LF、NUL 就是線上的
+  位元組（`test_the_server_sends_the_header_lines_of_each_case_byte_for_byte` 會檢查），
+  Chromium 照線上的標頭行讀。本套件逐值讀取，值裡換行之後的另一行標頭讀不到，空行之後的標頭行
+  照樣讀，所以精確集合的案例不能讓這兩種行改變結果。從 Chromium 單元測試自動匯入的案例由
+  `_unit_test_header_fits_one_line` 排除含 CR、LF、NUL 的值；換行、空行與 NUL 的案例逐案列在
+  `RAW_LINE_CASES`。
 
 Chromium 跟預期不一致時，先看報告裡的 Chromium 版本，判斷是移植的 bug，還是 Chromium
 改了行為（限制集合的名字變了，代表 Chromium 的 sniffing 變了）；後者依〈跟進 Chromium〉處理，
@@ -116,9 +121,12 @@ uv run pytest tests/http_clients --with-http-clients
 
 - 本機伺服器逐位元組送出每個案例的標頭行（例如重複的 Content-Disposition、單行的逗號清單、
   沒關上的引號、舊式字元集與 UTF-8 的位元組、多行 Content-Type、X-Content-Type-Options、
-  重新導向），各函式庫照使用說明的寫法取回，結果必須等於把送出的標頭行原樣交給本套件的
-  結果。使用說明說「會不同」的傳法（`response.headers` 把重複的行接成一行、不帶
-  `headers_encoding` 的 Latin-1 字串），測試把不同的結果寫成預期值。
+  重新導向、折行與其他換行、NUL、過長或過多的標頭行），各函式庫照使用說明的寫法取回，結果
+  必須等於把送出的標頭行原樣交給本套件的結果。使用說明說「會不同」的傳法（`response.headers`
+  把重複的行接成一行、不帶 `headers_encoding` 的 Latin-1 字串），以及函式庫自己接折行、丟掉
+  標頭行或拒收回應的地方（`LIBRARY_DIFFERENCES`），測試把不同的結果或丟出的例外寫成預期值。
+  值裡另一行標頭與空行的案例另外檢查各函式庫照 Chromium 的方式切行或拒收，因為使用說明靠這一點
+  說本套件逐值讀取的限制只影響自己組出的標頭行。
 - aiohttp 有 C 與純 Python 兩種 HTTP parser（PyPy 或 `AIOHTTP_NO_EXTENSIONS=1` 時用後者）。
   測試在同一次執行裡換上兩種 parser 各跑一次；C parser 不存在時失敗，所以要在 CPython 上、
   用 aiohttp 針對那個 CPython 版本編譯的 wheel 跑。aiohttp 還沒替某個 CPython 版本出 wheel 時，
@@ -168,6 +176,12 @@ Actions 會顯示失敗，要有人來看。
    Unicode 版本、但還沒有 Python 支援時，先停在舊的 ICU，或等新 Python 的 beta。
 5. 跑完整測試與 Chromium 瀏覽器測試，在 changelog（`docs/en` 與 `docs/zh-Hant`）寫明新的
    Chromium revision，以及檔名會因此改變的情況。
+
+標頭行的讀法（`_http.py` 的 `locate_end_of_headers`、`assemble_raw_headers` 與 `_headers.py`
+的 `line_value`）也是手寫的：升級釘選 revision 時，對照 `net/http/http_util.cc` 的
+`LocateEndOfHeaders`、`AssembleRawHeaders`，`net/http/http_response_headers.cc` 的
+`TryToCreate`／`HasEmbeddedNulls`，以及在 `net/http/http_stream_parser.cc` 呼叫它們的
+`ParseResponseHeaders`（先找標頭結尾，再對這段標頭拒收 NUL、組行）。
 
 MIME type 的推導（`_mime.py`）是手寫的，`generate_data.py --check` 不涵蓋它。升級釘選
 revision 時，對照上游逐一重新檢查：可 sniff 的型別清單與 unknown 型別（`net/base/mime_sniffer.cc`

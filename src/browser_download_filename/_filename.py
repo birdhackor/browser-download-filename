@@ -13,7 +13,6 @@ import sys
 from typing import Literal
 
 from ._bytes import (
-    header_bytes,
     is_string_utf8,
     native_multibyte_to_text,
     require_headers_encoding,
@@ -30,6 +29,7 @@ from ._headers import (
     HeadersLike,
     header_lines,
     header_values,
+    line_value,
 )
 from ._http import first_comma_separated_value
 from ._mime import download_mime_type
@@ -341,7 +341,7 @@ def _content_type_line(content_type: object, encoding: str | None) -> bytes | No
         raise TypeError(
             f"content_type must be str, bytes or None, not {type(content_type).__name__}"
         )
-    return header_bytes(content_type, encoding)
+    return line_value(content_type, encoding).value
 
 
 def suggested_filename(
@@ -367,8 +367,10 @@ def suggested_filename(
     get its extension from the response's MIME type.
 
     ``headers`` are the response's headers, as a mapping or an iterable of
-    (name, value) pairs. Content-Disposition is read from them as the first
-    comma-separated value of its first line. The MIME type comes from their
+    (name, value) pairs, each value read as Chromium reads the rest of its
+    header line, line breaks included (see :func:`parse_content_disposition`).
+    Content-Disposition is read from them as the first comma-separated value
+    of its first line. The MIME type comes from their
     Content-Type lines, read the way Chromium's network stack reads them,
     and from X-Content-Type-Options, which tells with the type whether Chrome
     sniffs the body for another one; the package has no body, so where
@@ -403,9 +405,9 @@ def suggested_filename(
     lines: list[tuple[bytes, bytes]] = []
     if headers is not None:
         accepted = HEADERS_SHAPE + " or None"
-        lines = header_lines(headers, encoding, argument="headers", accepted=accepted)
+        lines = header_lines(headers, encoding, argument="headers", accepted=accepted).lines
     if content_disposition is not None:
-        disposition_lines = [header_bytes(content_disposition, encoding)]
+        disposition_lines = [line_value(content_disposition, encoding).value]
     else:
         disposition_lines = header_values(lines, CONTENT_DISPOSITION)
     parsed_url = parse_url(_scalar_values(url) if url else None)

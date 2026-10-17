@@ -25,6 +25,7 @@ TRACKED = (
     "net/http/http_content_disposition.cc",
     "net/http/http_util.cc",
     "net/http/http_response_headers.cc",
+    "net/http/http_stream_parser.cc",
     "net/base/filename_util.cc",
     "net/base/filename_util_internal.cc",
     "net/base/filename_util_icu.cc",

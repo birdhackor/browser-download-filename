@@ -114,8 +114,15 @@ def _quote(data: bytes) -> str:
     return urllib.parse.quote_from_bytes(data, safe="")
 
 
-def _sendable(header: bytes) -> bool:
-    # Line breaks would end the header line, and HTTP has no room for NUL.
+def _unit_test_header_fits_one_line(header: bytes) -> bool:
+    """Whether a header from Chromium's unit tests goes into the corpus.
+
+    They are imported without review, and on the wire a CR, a LF or a NUL in
+    one would take the case past what the unit test checks: a line break can
+    start another header line, which the package does not read as one, and
+    a NUL makes Chromium refuse the response. Cases with them are listed by
+    hand instead (RAW_LINE_CASES).
+    """
     return not any(byte in header for byte in b"\r\n\0")
 
 
@@ -124,7 +131,7 @@ def chromium_unit_test_cases() -> list[BrowserCase]:
     headers = [header for header, charset, _ in FILENAME_CASES if not charset]
     headers += [header for header, _, _ in TC2231_CASES]
     headers += [header for header, _ in PARSE_RESULT_CASES if header]
-    unique = list(dict.fromkeys(header for header in headers if _sendable(header)))
+    unique = list(dict.fromkeys(filter(_unit_test_header_fits_one_line, headers)))
     return [
         BrowserCase(f"chromium-unittest-{index}", (header,)) for index, header in enumerate(unique)
     ]
@@ -457,6 +464,83 @@ HEADER_LINE_CASES: list[BrowserCase] = [
     BrowserCase("empty-header", (b"",)),
 ]
 
+_OCTET_STREAM = (b"Content-Type", b"application/octet-stream")
+
+# Line breaks, blank lines and NUL in the values the server sends. Chromium
+# reads the header lines they make on the wire.
+RAW_LINE_CASES: list[BrowserCase] = [
+    # A line that starts with a space or a tab continues the header: it is
+    # joined on with one space.
+    _attachment(b"attachment;\r\n filename=wire.pdf", "folded"),
+    _attachment(b"attachment;\r\n\t filename=wire.pdf", "folded-with-a-tab"),
+    _attachment(b"attachment;\n filename=wire.pdf", "folded-with-lf"),
+    _attachment(b"attachment;\r filename=wire.pdf", "folded-with-a-lone-cr"),
+    _attachment(b"\r\n attachment; filename=wire.pdf", "folded-onto-an-empty-line"),
+    _attachment(b'attachment; filename="wire\r\n\t file.pdf"', "folded-in-quotes"),
+    _attachment(b'attachment; filename="wire\r\n   file.pdf"', "folded-in-quotes-after-spaces"),
+    # The spaces and tabs before the line break stay.
+    _attachment(b'attachment; filename="a \r\n b.pdf"', "folded-after-a-space-in-quotes"),
+    _attachment(b'attachment; filename="a\t\r\n\tb.pdf"', "folded-after-a-tab-in-quotes"),
+    _attachment(
+        b'attachment; filename="a\r\n b \r\n c.pdf"', "folded-twice-after-a-space-in-quotes"
+    ),
+    # Each line of spaces and tabs adds one space.
+    _attachment(b'attachment; filename="a\r\n   \r\n\t\r\n  b.pdf"', "folded-lines-of-spaces"),
+    # Two CRs between the line feeds make no blank line.
+    _attachment(b"attachment;\n\r\r\n filename=wire.pdf", "folded-across-two-crs"),
+    # Any other line after a line break is another header line, which ends
+    # the value: here one that Chromium skips, as it has no colon.
+    _attachment(b"attachment;\r\nfilename=wire.pdf", "line-break-before-text"),
+    _attachment(b"attachment;\r\n\x0bfilename=wire.pdf", "line-break-before-a-vertical-tab"),
+    _attachment(b"attachment;\r\n\x0cfilename=wire.pdf", "line-break-before-a-form-feed"),
+    _attachment(b"\r\nattachment; filename=wire.pdf", "line-break-at-the-start"),
+    _attachment(b"attachment; filename=wire.pdf\rX-Note: 1", "lone-cr-before-another-header"),
+    # The package does not read the second Content-Disposition. It is the same
+    # as the first, so that it changes nothing for Chromium either: another
+    # one would make Chromium refuse the response.
+    _attachment(
+        b"attachment; filename=a.pdf\rContent-Disposition: attachment; filename=a.pdf",
+        "lone-cr-before-the-same-content-disposition",
+    ),
+    # Neither a vertical tab nor a form feed breaks a line.
+    _attachment(b'attachment; filename="a\x0bb\x0cc.txt"', "vertical-tab-and-form-feed"),
+    # A blank line ends the headers: the rest of the response is the body.
+    _attachment(b"attachment;\r\n\r\n filename=wire.pdf", "blank-line"),
+    _attachment(b"attachment;\n\n filename=wire.pdf", "blank-line-of-lfs"),
+    _attachment(b"attachment;\n\r\n filename=wire.pdf", "blank-line-of-lf-cr-lf"),
+    # With the line break after the value, the LF makes a blank line.
+    _attachment(b'attachment; filename="a.txt"\n', "lf-at-the-end"),
+    _attachment(b'attachment; filename="a.txt"\r\n\r\n\0', "nul-after-a-blank-line"),
+    # A NUL anywhere in the headers makes Chromium refuse the response.
+    _attachment(b"attachment; filename=wi\0re.pdf", "nul"),
+    _attachment(b"attachment;\r\n\0filename=wire.pdf", "nul-after-a-line-break"),
+    BrowserCase(
+        "nul-download-attribute",
+        (b"attachment; filename=wi\0re.pdf",),
+        path="page",
+        content_type="text/html",
+        download_attribute="saved",
+    ),
+    BrowserCase(
+        "nul-in-another-header",
+        header_lines=(_OCTET_STREAM, NOSNIFF, (b"X-Note", b"a\0b"), ATTACHMENT),
+    ),
+    BrowserCase(
+        "nul-in-another-header-download-attribute",
+        header_lines=(_OCTET_STREAM, NOSNIFF, (b"X-Note", b"a\0b"), ATTACHMENT),
+        download_attribute="saved",
+    ),
+    BrowserCase(
+        "nul-in-a-name", header_lines=(_OCTET_STREAM, NOSNIFF, (b"X-No\0te", b"a"), ATTACHMENT)
+    ),
+    # Content-Type and X-Content-Type-Options are read the same way.
+    _probe("content-type-folded", (b"Content-Type", b"\r\n text/html"), NOSNIFF),
+    _probe(
+        "content-type-line-break", (b"Content-Type", b"image/png\r\nX-Note: text/html"), NOSNIFF
+    ),
+    _probe("nosniff-folded", (b"X-Content-Type-Options", b"\r\n nosniff")),
+]
+
 
 def charset_label_cases() -> list[BrowserCase]:
     """filename*=<label>''ABC.txt for labels Chromium accepts or rejects."""
@@ -625,7 +709,7 @@ def fuzz_cases(count: int = 150, seed: int = 20261016) -> list[BrowserCase]:
     cases = []
     for index in range(count):
         header = b"".join(generator.choice(_FUZZ_PIECES) for _ in range(generator.randint(1, 12)))
-        if _sendable(header) and b"," not in header:
+        if b"," not in header:
             cases.append(BrowserCase(f"fuzz-{index}", (header.strip(b" \t"),)))
     return cases
 
@@ -744,6 +828,7 @@ def exact_cases() -> list[BrowserCase]:
         + NOSNIFF_CASES
         + DOWNLOAD_ATTRIBUTE_CASES
         + HEADER_LINE_CASES
+        + RAW_LINE_CASES
         + charset_label_cases()
         + single_byte_table_cases()
         + multi_byte_cases()

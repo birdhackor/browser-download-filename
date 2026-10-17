@@ -59,7 +59,7 @@ leading and trailing dots are removed, so `../../etc/passwd` becomes
 | --- | --- |
 | `suggested_filename(headers, url=..., ...)` | The file name Chrome picks for a download: from Content-Disposition, an `<a download>` value, the URL or a default, then sanitized; a name that is not from Content-Disposition can get the extension of the MIME type. Content-Disposition and the MIME type come from the response's headers, or from `content_disposition=` and `content_type=`; `platform=` chooses between Chrome's Windows and POSIX rules. |
 | `sanitize_filename(name)` | Chrome's sanitization applied to a name from anywhere, such as a page title or user input, the way Chrome cleans an `<a download>` value. |
-| `parse_content_disposition(value)` | The disposition type and the decoded file name of a header, as Chromium reads them, without sanitizing, and whether Chrome refuses the response because its Content-Disposition values differ. |
+| `parse_content_disposition(value)` | The disposition type and the decoded file name of a header, as Chromium reads them, without sanitizing, and whether Chrome refuses the response because its Content-Disposition values differ or its headers hold a NUL. |
 
 `suggested_filename` and `parse_content_disposition` take a response's headers,
 or the header alone as bytes or as a str, and never raise on a malformed

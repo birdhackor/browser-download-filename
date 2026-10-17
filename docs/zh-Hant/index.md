@@ -39,7 +39,7 @@ python -m pip install browser-download-filename
 | --- | --- |
 | `suggested_filename(headers, url=..., ...)` | Chrome 替一次下載取的檔名：依序從 Content-Disposition、`<a download>` 的值、網址或預設名取得，再清洗；不是取自 Content-Disposition 的檔名，可能依 MIME 類型補上副檔名。Content-Disposition 和 MIME 類型取自回應的標頭，或 `content_disposition=` 與 `content_type=`；`platform=` 選擇 Chrome 在 Windows 或 POSIX 上的規則。 |
 | `sanitize_filename(name)` | 把 Chrome 的清洗規則套用在任何來源的名稱上，例如網頁標題或使用者輸入，清洗方式跟 Chrome 清洗 `<a download>` 的值相同。 |
-| `parse_content_disposition(value)` | 照 Chromium 的方式讀出標頭的處置類型和解碼後的檔名，不做清洗；也告訴你 Chrome 會不會因為 Content-Disposition 的值彼此不同而拒絕這個回應。 |
+| `parse_content_disposition(value)` | 照 Chromium 的方式讀出標頭的處置類型和解碼後的檔名，不做清洗；也告訴你 Chrome 會不會因為 Content-Disposition 的值彼此不同，或標頭裡有 NUL，而拒絕這個回應。 |
 
 `suggested_filename` 和 `parse_content_disposition` 都可以傳入回應的整組標頭，或單一個位元組（bytes）或字串（str）形式的標頭，遇到格式錯誤的標頭不會丟出例外。本套件除了標準庫之外沒有任何相依套件，支援 CPython 3.11 以上和 PyPy。
 

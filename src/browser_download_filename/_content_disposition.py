@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ._bytes import (
-    header_bytes,
     is_string_utf8,
     is_token,
     native_multibyte_to_text,
@@ -22,7 +21,14 @@ from ._bytes import (
     unescape_binary_url_component,
 )
 from ._charset import decode_strict, decode_strict_nfc, decode_substituting, require_charset
-from ._headers import CONTENT_DISPOSITION, HEADERS_SHAPE, HeadersLike, header_lines, header_values
+from ._headers import (
+    CONTENT_DISPOSITION,
+    HEADERS_SHAPE,
+    HeadersLike,
+    header_lines,
+    header_values,
+    line_value,
+)
 from ._http import comma_separated_values, parameters
 
 DispositionType = Literal["inline", "attachment"]
@@ -44,10 +50,13 @@ class ContentDisposition:
     #: separators, control characters and other characters that are unsafe
     #: in a file name.
     filename: str | None
-    #: Whether Chromium refuses the whole response
-    #: (ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION): some value of the
-    #: Content-Disposition lines, split on commas outside quotes, differs from
-    #: the first one. ``type`` and ``filename`` still come from the first.
+    #: Whether Chromium refuses the whole response for one of two reasons:
+    #: some value of the Content-Disposition lines, split on commas outside
+    #: quotes, differs from the first one
+    #: (ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION), or a header line
+    #: holds a NUL (ERR_INVALID_HTTP_RESPONSE). Chromium refuses responses for
+    #: other reasons too, which this does not tell. ``type`` and ``filename``
+    #: still come from the first value.
     blocks_download: bool = False
 
     @property
@@ -238,21 +247,26 @@ def _parse(header: bytes, referrer_charset: bytes | None) -> ContentDisposition:
     return ContentDisposition(disposition, ext_filename or filename or None)
 
 
-def _from_lines(lines: list[bytes], referrer_charset: bytes | None) -> ContentDisposition:
+def _from_lines(
+    lines: list[bytes], referrer_charset: bytes | None, *, has_nul: bool
+) -> ContentDisposition:
     """The Content-Disposition of a response with these header lines.
 
     HttpResponseHeaders splits each line into its comma-separated values,
     empty ones included, and the download code parses the first value
     (EnumerateHeader). The network stack refuses the response when
     HttpUtil::HeadersContainMultipleCopiesOfField finds another value that
-    differs from that one.
+    differs from that one, and also, before it reads any header, when a
+    header line holds a NUL, which ``has_nul`` tells.
     """
     values = [value for line in lines for value in comma_separated_values(line)]
     if not values:
-        return ContentDisposition("inline", None)
+        return ContentDisposition("inline", None, has_nul)
     first = values[0]
     parsed = _parse(first, referrer_charset)
-    return ContentDisposition(parsed.type, parsed.filename, any(value != first for value in values))
+    return ContentDisposition(
+        parsed.type, parsed.filename, has_nul or any(value != first for value in values)
+    )
 
 
 def parse_content_disposition(
@@ -267,11 +281,15 @@ def parse_content_disposition(
     ``value`` is one header value, as bytes or as the str an HTTP library
     produced, or a response's headers, as a mapping or an iterable of
     (name, value) pairs, of which every Content-Disposition line is read;
-    ``None`` stands for a missing header. The type and the filename come
+    ``None`` stands for a missing header. Each value is read as the rest of
+    its header line was sent, the way Chromium reads it: a blank line ends
+    it, and at a line break, a next line that starts with a space or a tab
+    is folded into it, and any other ends it. The type and the filename come
     from the first comma-separated value, which is the one Chrome's download
     code reads, and ``blocks_download`` tells whether Chrome refuses the
-    response because another value differs from it. Malformed headers never
-    raise: Chromium's interpretation of them is returned instead.
+    response for one of two reasons: another value differs from it, or a
+    header holds a NUL. Malformed headers never raise: Chromium's
+    interpretation of them is returned instead.
 
     ``fallback_charset`` names the charset tried for raw non-UTF-8 bytes in
     ``filename``, before giving up on them; Chrome passes the browser's
@@ -287,12 +305,12 @@ def parse_content_disposition(
     referrer_charset = require_charset(fallback_charset)
     encoding = require_headers_encoding(headers_encoding)
     if value is None:
-        lines: list[bytes] = []
-    elif isinstance(value, (str, bytes, bytearray, memoryview)):
-        lines = [header_bytes(value, encoding)]
-    else:
-        every_line = header_lines(
-            value, encoding, argument="value", accepted="str, bytes, None, " + HEADERS_SHAPE
-        )
-        lines = header_values(every_line, CONTENT_DISPOSITION)
-    return _from_lines(lines, referrer_charset)
+        return _from_lines([], referrer_charset, has_nul=False)
+    if isinstance(value, (str, bytes, bytearray, memoryview)):
+        line = line_value(value, encoding)
+        return _from_lines([line.value], referrer_charset, has_nul=line.has_nul)
+    headers = header_lines(
+        value, encoding, argument="value", accepted="str, bytes, None, " + HEADERS_SHAPE
+    )
+    lines = header_values(headers.lines, CONTENT_DISPOSITION)
+    return _from_lines(lines, referrer_charset, has_nul=headers.has_nul)

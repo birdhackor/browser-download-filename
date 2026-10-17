@@ -247,3 +247,163 @@ def test_every_header_is_checked() -> None:
             suggested_filename(headers)  # type: ignore[arg-type]
         with pytest.raises(TypeError, match="header value"):
             parse_content_disposition(headers)  # type: ignore[arg-type]
+
+
+# --- Header lines as they were sent -------------------------------------------
+
+# Content-Disposition values with line breaks, and the names Chromium gives
+# for them on the wire, for a URL that ends in /<id>.bin. A line that starts
+# with a space or a tab continues the header; any other line is another one.
+LINE_BREAKS: dict[str, tuple[bytes, str]] = {
+    "folded": (b"attachment;\r\n filename=wire.pdf", "wire.pdf"),
+    "folded-with-lf": (b"attachment;\n filename=wire.pdf", "wire.pdf"),
+    "folded-with-a-lone-cr": (b"attachment;\r filename=wire.pdf", "wire.pdf"),
+    "folded-onto-an-empty-line": (b"\r\n attachment; filename=wire.pdf", "wire.pdf"),
+    "folded-in-quotes": (b'attachment; filename="wire\r\n\t file.pdf"', "wire file.pdf"),
+    "folded-after-spaces": (b'attachment; filename="wire\r\n   file.pdf"', "wire file.pdf"),
+    # The spaces and tabs before the line break stay; each continued line
+    # adds one space, even one made only of spaces and tabs.
+    "folded-after-a-space": (b'attachment; filename="a \r\n b.pdf"', "a  b.pdf"),
+    "folded-after-a-tab": (b'attachment; filename="a\t\r\n\tb.pdf"', "a  b.pdf"),
+    "folded-twice-after-a-space": (b'attachment; filename="a\r\n b \r\n c.pdf"', "a b  c.pdf"),
+    "folded-lines-of-spaces": (b'attachment; filename="a\r\n   \r\n\t\r\n  b.pdf"', "a   b.pdf"),
+    # A run of CRs and LFs is one line break, unless it holds a blank line.
+    "folded-across-two-crs": (b"attachment;\n\r\r\n filename=wire.pdf", "wire.pdf"),
+    "folded-across-cr-cr": (b"attachment;\r\r filename=wire.pdf", "wire.pdf"),
+    "line-break-before-text": (b"attachment;\r\nfilename=wire.pdf", "line-break-before-text.bin"),
+    "line-break-at-the-start": (
+        b"\r\nattachment; filename=wire.pdf",
+        "line-break-at-the-start.bin",
+    ),
+    # Only CR and LF break lines; a vertical tab or a form feed is no space.
+    "line-break-before-a-vertical-tab": (
+        b"attachment;\r\n\x0bfilename=wire.pdf",
+        "line-break-before-a-vertical-tab.bin",
+    ),
+    "line-break-before-a-form-feed": (
+        b"attachment;\r\n\x0cfilename=wire.pdf",
+        "line-break-before-a-form-feed.bin",
+    ),
+    "vertical-tab-and-form-feed": (b'attachment; filename="a\x0bb\x0cc.txt"', "a_b_c.txt"),
+    "lone-cr-before-another-header": (b"attachment; filename=wire.pdf\rX-Note: 1", "wire.pdf"),
+    "lone-cr-before-content-type": (
+        b"attachment; filename=noext\rContent-Type: image/png",
+        "noext",
+    ),
+    # A blank line ends the headers.
+    "blank-line": (b"attachment;\r\n\r\n filename=wire.pdf", "blank-line.bin"),
+    "blank-line-of-lfs": (b"attachment;\n\n filename=wire.pdf", "blank-line-of-lfs.bin"),
+    "blank-line-of-lf-cr-lf": (
+        b"attachment;\n\r\n filename=wire.pdf",
+        "blank-line-of-lf-cr-lf.bin",
+    ),
+    "blank-line-at-the-start": (
+        b"\n\nattachment; filename=wire.pdf",
+        "blank-line-at-the-start.bin",
+    ),
+    "lf-at-the-end": (b'attachment; filename="a.txt"\n', "a.txt"),
+}
+
+
+@pytest.mark.parametrize("case_id", LINE_BREAKS)
+def test_line_breaks_in_a_value_are_read_as_on_the_wire(case_id: str) -> None:
+    value, expected = LINE_BREAKS[case_id]
+    url = f"https://example.com/{case_id}.bin"
+    text = value.decode("latin-1")
+    names = [
+        suggested_filename([("Content-Disposition", value)], url=url, platform="posix"),
+        suggested_filename({"Content-Disposition": [value]}, url=url, platform="posix"),
+        suggested_filename(
+            [("Content-Disposition", text)], url=url, headers_encoding="latin-1", platform="posix"
+        ),
+        suggested_filename(url=url, content_disposition=value, platform="posix"),
+    ]
+    assert names == [expected] * len(names)
+    parsed = {
+        parse_content_disposition(value),
+        parse_content_disposition(text, headers_encoding="latin-1"),
+        parse_content_disposition([("Content-Disposition", value)]),
+    }
+    assert len(parsed) == 1
+    assert not parsed.pop().blocks_download
+
+
+def test_content_type_and_options_are_read_as_on_the_wire() -> None:
+    url = "https://example.com/page"
+    nosniff = ("X-Content-Type-Options", b"nosniff")
+    for content_type, expected in [
+        (b"\r\n text/html", "page.html"),
+        (b"text/html;\r\n\tcharset=utf-8", "page.html"),
+        # The type ends at the space that the folded line brings.
+        (b"text/\r\n html", "page"),
+        (b"image/png\r\nX-Note: text/html", "page.png"),
+        (b"text/html\r\n\r\nimage/png", "page.html"),
+    ]:
+        assert suggested_filename([("Content-Type", content_type), nosniff], url=url) == expected
+        assert suggested_filename([nosniff], url=url, content_type=content_type) == expected
+    # A folded nosniff stops the sniffing, so no Content-Type is text/plain.
+    assert suggested_filename([("X-Content-Type-Options", b"\r\n nosniff")], url=url) == "page.txt"
+    assert suggested_filename([("X-Content-Type-Options", b"\r\nnosniff")], url=url) == "page"
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        # In Content-Disposition, in another header, and in a header name.
+        ([("Content-Disposition", b"attachment; filename=wi\0re.pdf")], "wi_re.pdf"),
+        ([("X-Note", b"a\0b"), ("Content-Disposition", A)], "a.txt"),
+        ([("Content-Disposition", A), ("X-Note", "a\0b")], "a.txt"),
+        ([(b"X-No\0te", b"a"), ("Content-Disposition", A)], "a.txt"),
+        ([("X-No\0te", "a")], "from-url.bin"),
+        ({"X-Note": [b"a", b"b\0"], "Content-Disposition": A}, "a.txt"),
+        # After a line break, in a line that is not part of the value: it is
+        # still in the headers.
+        ([("Content-Disposition", A + b"\r\nX-Note: \0")], "a.txt"),
+        ([("Content-Disposition", b"attachment;\r\n\0filename=wire.pdf")], "from-url.bin"),
+    ],
+)
+def test_a_nul_in_the_headers_blocks_the_download(headers: HeadersLike, expected: str) -> None:
+    assert parse_content_disposition(headers).blocks_download
+    # suggested_filename names the file all the same, from the first value.
+    assert suggested_filename(headers, url=URL, platform="posix") == expected
+
+
+def test_a_nul_in_one_value_blocks_the_download() -> None:
+    value = b"attachment; filename=wi\0re.pdf"
+    blocked = ContentDisposition("attachment", "wi\0re.pdf", True)
+    assert parse_content_disposition(value) == blocked
+    assert parse_content_disposition(value.decode("ascii")) == blocked
+    assert suggested_filename(url=URL, content_disposition=value) == "wi_re.pdf"
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        # After a blank line, which ends the headers: it is in the body.
+        ([("Content-Disposition", A + b"\r\n\r\n\0")], ContentDisposition("attachment", "a.txt")),
+        ([("Content-Disposition", A + b"\n\n\0")], ContentDisposition("attachment", "a.txt")),
+        (
+            [("Content-Disposition", A), ("X-Note", b"a\n\r\n\0")],
+            ContentDisposition("attachment", "a.txt"),
+        ),
+        # A name with no value has no line.
+        ([("X-No\0te", [])], ContentDisposition("inline", None)),
+    ],
+)
+def test_a_nul_outside_the_headers_does_not_block(
+    headers: HeadersLike, expected: ContentDisposition
+) -> None:
+    assert parse_content_disposition(headers) == expected
+
+
+def test_the_package_does_not_read_the_header_lines_that_values_make_on_the_wire() -> None:
+    # Chromium reads a second Content-Disposition here, which differs from the
+    # first, and refuses the response.
+    second = b"attachment; filename=a.pdf\rContent-Disposition: attachment; filename=b.pdf"
+    assert parse_content_disposition(second) == ContentDisposition("attachment", "a.pdf")
+    assert suggested_filename(url=URL, content_disposition=second) == "a.pdf"
+    # Chromium ends the headers at the blank line, and finds no
+    # Content-Disposition after it.
+    headers = [("X-Note", b"a\r\n\r\n"), ("Content-Disposition", A)]
+    assert parse_content_disposition(headers) == ContentDisposition("attachment", "a.txt")
+    assert suggested_filename(headers, url=URL) == "a.txt"

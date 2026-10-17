@@ -80,6 +80,13 @@ A name is a str or bytes, and names match whatever their ASCII case. A value
 header line. The lines keep their order, and repeated lines all count. The
 headers are read only once, so a generator works too.
 
+Each value is the rest of its header line as it was sent. It can hold line
+breaks, which are read as Chrome reads them: a line that starts with a space
+or a tab is joined on, and any other line, or a blank line, ends the value
+(see [Reading header lines](behavior.md#reading-header-lines)). The same goes
+for the values of `content_disposition`, `content_type` and
+`parse_content_disposition`.
+
 A str or bytes is not headers: `suggested_filename` raises `TypeError` for one;
 pass a single Content-Disposition value as `content_disposition`.
 
@@ -101,8 +108,8 @@ response's headers (see [`HeadersLike`](#headerslike)), of which every
 Content-Disposition line is read; `None` stands for a missing header. `type`
 and `filename` come from the first comma-separated value of the first line,
 which is the value Chrome's download code reads, and `blocks_download` says
-whether Chrome refuses the response. `fallback_charset` and `headers_encoding`
-are as above.
+whether Chrome refuses the response because the values differ or the headers
+hold a NUL. `fallback_charset` and `headers_encoding` are as above.
 
 ## ContentDisposition
 
@@ -123,7 +130,7 @@ A parsed header: an immutable value that compares and hashes by its fields.
 | --- | --- |
 | `type` | `"attachment"` for `attachment` and for any other valid disposition type Chromium does not know; `"inline"` for `inline`, a missing header, or a header that does not start with a valid type. |
 | `filename` | The decoded file name, or `None` when the header has none that Chromium can use. It is not sanitized: it can contain path separators, control characters and other characters that are unsafe in a file name. |
-| `blocks_download` | Whether Chrome refuses the whole response (`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`): `True` when the Content-Disposition values, split on commas outside quotes and trimmed of spaces and tabs, are not all the same, byte for byte. `type` and `filename` still come from the first value. See [Several Content-Disposition headers](usage.md#several-content-disposition-headers). |
+| `blocks_download` | Whether Chrome refuses the whole response for one of two reasons: `True` when the Content-Disposition values, split on commas outside quotes and trimmed of spaces and tabs, are not all the same, byte for byte (`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`), or when the headers hold a NUL, in a name or a value of any header (`ERR_INVALID_HTTP_RESPONSE`; see [Reading header lines](behavior.md#reading-header-lines)). Chrome refuses responses for other reasons too, for which it is `False` (see [Limits of the port](behavior.md#limits-of-the-port)). `type` and `filename` still come from the first value. See [Several Content-Disposition headers](usage.md#several-content-disposition-headers). |
 | `is_attachment` | Whether `type` is `"attachment"`. |
 
 ## `__version__`

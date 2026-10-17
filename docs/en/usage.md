@@ -102,18 +102,24 @@ Chinese characters in UTF-8), and a file with that name may already exist
 Chromium reads the header lines of a response as bytes, each line on its own.
 Python HTTP libraries decode headers to str, and some join the lines of a
 header that comes more than once. Each library here has a way to pass the
-headers that gives the same name as the lines on the wire:
+headers that gives the same name as the lines on the wire, except for header
+lines that HTTP does not allow, such as folded lines, which some libraries
+read otherwise than Chrome or refuse, and for headers larger than a library
+takes (see [Joined lines and guessed bytes](#joined-lines-and-guessed-bytes)
+and [Header lines that HTTP does not
+allow](#header-lines-that-http-does-not-allow)):
 
-| Library | `headers` | `headers_encoding` |
-| --- | --- | --- |
-| httpx2, httpx | `response.headers.raw` | none: the lines are bytes |
-| aiohttp | `response.raw_headers` | none: the lines are bytes |
-| requests | `response.raw.headers` | `"latin-1"` |
-| `urllib.request` | `response.headers` | `"latin-1"` |
+| Library | `headers` | `headers_encoding` | Folded lines |
+| --- | --- | --- | --- |
+| httpx2, httpx | `response.headers.raw` | none: the lines are bytes | joined as in Chrome |
+| aiohttp | `response.raw_headers` | none: the lines are bytes | joined, keeping the spaces and tabs that start the next line |
+| requests | `response.raw.headers` | `"latin-1"` | after CR LF, one space in place of the spaces and tabs on both sides |
+| `urllib.request` | `response.headers` | `"latin-1"` | as they came, for the package to join |
 
-For httpx2 and httpx, see [Name a download](#name-a-download). aiohttp keeps
-every line in bytes in `response.raw_headers`, and its `response.url` is a URL
-object too:
+The last column is about folds after CR LF or LF; see [Joined lines and
+guessed bytes](#joined-lines-and-guessed-bytes). For httpx2 and httpx, see
+[Name a download](#name-a-download). aiohttp keeps every line in bytes in
+`response.raw_headers`, and its `response.url` is a URL object too:
 
 ```python
 async with session.get(url) as response:
@@ -150,10 +156,59 @@ name can take in what follows; on any line, the values can change, and
 the response (see [Reading
 Content-Disposition](behavior.md#reading-content-disposition)).
 
+A folded line, which goes on in the next line that starts with a space or a
+tab, is joined on with one space in Chrome (see [Reading header
+lines](behavior.md#reading-header-lines)). httpx2 and httpx join it the same
+way, and `urllib.request` gives it as it came, for the package to join.
+requests and aiohttp join it otherwise: requests also drops the spaces and
+tabs before a CR LF line break, and aiohttp keeps all the spaces and tabs that
+start the next line. Inside quotes, that changes the name:
+`filename="a \r\n b.pdf"` is `a  b.pdf` in Chrome and `a b.pdf` with
+requests, and `filename="wire\r\n\t file.pdf"` is `wire file.pdf` in Chrome
+and `wire  file.pdf` with aiohttp. The package cannot undo either. A line
+break with a lone CR in it, or with a line of nothing but CRs, is another
+matter (see [Header lines that HTTP does not
+allow](#header-lines-that-http-does-not-allow)).
+
 Without `headers_encoding`, the package guesses the bytes behind each str (see
 [Inputs as str](api-reference.md#inputs-as-str)). The guess can be wrong for
 bytes in a legacy charset, such as `caf\xe9.txt` in windows-1252, that a
 library decoded as Latin-1, and the name can then differ.
+
+### Header lines that HTTP does not allow
+
+Chrome reads some header lines that HTTP does not allow (see [Reading header
+lines](behavior.md#reading-header-lines)), and the libraries do not all read
+them as Chrome does:
+
+- **NUL.** A NUL in the headers makes Chrome refuse the response (see
+  [Several Content-Disposition headers](#several-content-disposition-headers)).
+  requests and `urllib.request` give a NUL in a header line on, and
+  `blocks_download` tells you that Chrome refuses the response, unless the NUL
+  keeps them from reading the line as a header line (see the next item).
+  httpx2, httpx and aiohttp refuse the response themselves, with an
+  exception.
+- **Lines that are not header lines.** requests and `urllib.request` stop
+  reading the headers at a line they cannot read as a header line, and lose
+  the header lines after it: text without a colon after a line break in a
+  value, which Chrome skips; a header name with a NUL in it, or a line that
+  starts with a NUL, for which Chrome refuses the response; and a line of
+  nothing but CRs, such as the one that a CR at the end of a value makes with
+  the line break after it, which is no blank line to Chrome. aiohttp's Python
+  parser also ends the headers at a line of CRs. httpx2, httpx and aiohttp
+  refuse a line that is not a header line.
+- **Lone CRs.** A CR that no LF follows breaks the line, for Chrome as for
+  requests and `urllib.request`. httpx2, httpx and aiohttp's C parser refuse
+  the response; aiohttp's Python parser drops the CRs at the end of a line and
+  refuses the others.
+- **Vertical tabs and form feeds** are part of a value to Chrome. httpx2 and
+  httpx refuse the response.
+
+Each library also refuses headers past limits of its own: aiohttp a header
+line of more than about 8 KB or more than about 128 lines, requests and
+`urllib.request` a line of more than 64 KiB or more than about 100 lines, and
+httpx2 and httpx more than 100 to 164 KiB of headers in all, depending on how
+the bytes arrive.
 
 ### Several Content-Disposition headers
 
@@ -163,7 +218,9 @@ on commas outside quotes and names the file from the first value. If any value
 differs from the first, Chrome refuses the whole response
 (`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`). That also happens with a
 single header that has a comma outside quotes, such as
-`attachment; filename=a,b.txt`.
+`attachment; filename=a,b.txt`. Chrome also refuses a response whose headers
+hold a NUL, in any header (`ERR_INVALID_HTTP_RESPONSE`; see [Reading header
+lines](behavior.md#reading-header-lines)).
 
 The package sees every value when it gets every line, as in [Pass the
 headers from your HTTP library](#pass-the-headers-from-your-http-library). A
@@ -171,7 +228,8 @@ header looked up by name is not the same: `urllib.request` and aiohttp give
 only its first line, and requests, httpx and httpx2 join its lines into one
 (see [Joined lines and guessed bytes](#joined-lines-and-guessed-bytes)). Pass
 the headers to `suggested_filename`, or to `parse_content_disposition`, whose
-`blocks_download` tells you whether Chrome refuses the response:
+`blocks_download` tells you whether Chrome refuses the response for either
+reason:
 
 ```pycon
 >>> headers = [
@@ -184,6 +242,8 @@ ContentDisposition(type='attachment', filename='a.pdf', blocks_download=True)
 'a.pdf'
 >>> parse_content_disposition("attachment; filename=a,b.txt")
 ContentDisposition(type='attachment', filename='a', blocks_download=True)
+>>> parse_content_disposition([("X-Note", "a\x00b"), ("Content-Disposition", "attachment")])
+ContentDisposition(type='attachment', filename=None, blocks_download=True)
 ```
 
 When Chrome refuses a response, a plain link to it downloads nothing: Chrome

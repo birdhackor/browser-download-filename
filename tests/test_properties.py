@@ -14,6 +14,7 @@ from browser_download_filename import (
     suggested_filename,
 )
 from browser_download_filename._filename import _ILLEGAL_ANYWHERE, _ILLEGAL_AT_ENDS
+from browser_download_filename._headers import line_value
 
 PIECES = st.sampled_from(
     [
@@ -29,6 +30,17 @@ NAMED = st.sampled_from([b"a.txt", b"b.pdf", b"c"]).map(
     lambda name: b"attachment; filename=" + name
 )
 LINES = st.lists(st.one_of(HEADERS, NAMED), max_size=4)
+# Line breaks, blank lines, other header lines and NUL, as they can come in
+# the value of a header line on the wire.
+LINE_PIECES = st.sampled_from(
+    [
+        b"\r", b"\n", b"\r\n", b"\r\n ", b"\n\t", b"\r\r", b"\n\r\n", b"\n\r\r\n", b" ",
+        b"\t", b"\x0b", b"\x0c", b"\x00", b":", b"X-Note: ", b"Content-Disposition: ",
+    ]
+)  # fmt: skip
+RAW_VALUES = st.one_of(
+    st.binary(max_size=60), st.lists(st.one_of(PIECES, LINE_PIECES), max_size=30).map(b"".join)
+)
 TEXT = st.text(max_size=80)
 PLATFORMS = st.sampled_from(["posix", "windows"])
 CONTENT_TYPE_PIECES = st.sampled_from(
@@ -151,8 +163,9 @@ def test_content_type_lines_are_their_values_joined(
     values: list[bytes], options: list[tuple[str, bytes]]
 ) -> None:
     # Chromium joins the lines, trimmed, with ", " before it splits them, so
-    # a quote left open on one line goes on into the next.
-    joined = b", ".join(value.strip(b" \t") for value in values)
+    # a quote left open on one line goes on into the next. Each line is read
+    # as it came on the wire first.
+    joined = b", ".join(line_value(value, None).value.strip(b" \t") for value in values)
     url = "https://example.com/page"
     assert suggested_filename(
         [*(("Content-Type", value) for value in values), *options], url=url, platform="posix"
@@ -215,6 +228,84 @@ def test_ext_value_round_trip(name: str) -> None:
         assert parsed.filename == unicodedata.normalize("NFC", name)
 
 
+@settings(max_examples=400)
+@given(st.lists(RAW_VALUES, max_size=3), RAW_VALUES, RAW_VALUES, TEXT, PLATFORMS)
+def test_values_as_sent_never_raise_and_give_a_safe_name(
+    dispositions: list[bytes], content_type: bytes, options: bytes, path: str, platform: str
+) -> None:
+    headers = [
+        *(("Content-Disposition", value) for value in dispositions),
+        ("Content-Type", content_type),
+        ("X-Content-Type-Options", options),
+    ]
+    url = "https://example.com/" + path + "?q"
+    parsed = parse_content_disposition(headers)
+    assert parsed.type in ("inline", "attachment")
+    assert parsed.filename is None or (isinstance(parsed.filename, str) and parsed.filename)
+    for name in (
+        suggested_filename(headers, url=url, platform=platform),  # type: ignore[arg-type]
+        suggested_filename(
+            url=url,
+            content_disposition=dispositions[0] if dispositions else None,
+            content_type=content_type,
+            platform=platform,  # type: ignore[arg-type]
+        ),
+    ):
+        _assert_safe(name)
+
+
+def _chromium_reads(value: bytes) -> tuple[bytes, bool]:
+    """What Chromium reads in a response head with this value for X.
+
+    That is the value of X, and whether the response is refused for a NUL.
+    The head is read whole, the way HttpStreamParser hands it on: the end of
+    the headers is found byte by byte as LocateEndOfHeaders does, then
+    HttpResponseHeaders::TryToCreate refuses a NUL in it, and the lines are
+    joined line by line as AssembleRawHeaders does.
+    """
+    head = b"HTTP/1.1 200 OK\r\nX: " + value + b"\r\n\r\n"
+    end = 0
+    last = 0
+    was_lf = False
+    while end < len(head):
+        byte = head[end]
+        end += 1
+        if byte == 0x0A:
+            if was_lf:
+                break
+            was_lf = True
+        elif byte != 0x0D or last != 0x0A:
+            was_lf = False
+        last = byte
+    head = head[:end]
+    refused = 0 in head
+    # The status line ends at the first CR, before X; then every token
+    # between runs of CR and LF is a line.
+    tokens = [
+        token for token in head[head.index(b"\r") :].replace(b"\r", b"\n").split(b"\n") if token
+    ]
+    lines: list[bytes] = []
+    continuable = False
+    for line in tokens:
+        if continuable and line[:1] in (b" ", b"\t"):
+            lines[-1] += b" " + line.lstrip(b" \t")
+        else:
+            lines.append(line)
+            colon = line.find(b":")
+            continuable = colon > 0 and line[:1] not in (b" ", b"\t")
+    assert lines[0].startswith(b"X: ")
+    return lines[0][len(b"X: ") :], refused
+
+
+@settings(max_examples=500)
+@given(RAW_VALUES)
+@example(b"a\n\r\r\n b")
+@example(b"a\n")
+@example(b"\r\n b\n\nc\0")
+def test_a_value_is_read_as_chromium_reads_it_in_a_response_head(value: bytes) -> None:
+    assert line_value(value, None) == _chromium_reads(value)
+
+
 def test_large_adversarial_inputs_are_fast() -> None:
     inputs = [
         b"attachment; filename=" + b'"' * 200_000,
@@ -224,6 +315,13 @@ def test_large_adversarial_inputs_are_fast() -> None:
         b"attachment; filename*=UTF-8''" + b"%41" * 60_000,
         b"attachment; filename*=shift_jis''" + b"%81" * 60_000,
         b"attachment; filename=" + b"a " * 100_000,
+        # Lines to join, lines that end the value, and runs of line breaks.
+        b"attachment; filename=a" + b"\r\n " * 100_000,
+        b'attachment; filename="' + b"\n\ta" * 100_000,
+        b"attachment; filename=a" + b"\na" * 100_000,
+        b"attachment; filename=a" + b"\r" * 200_000 + b" b",
+        b"attachment; filename=a" + b"\n\r\r" * 100_000,
+        b"attachment; filename=a" + b"\r\n\0" * 100_000,
     ]
     for header in inputs:
         started = time.perf_counter()
@@ -240,6 +338,11 @@ def test_large_adversarial_inputs_are_fast() -> None:
     started = time.perf_counter()
     assert parse_content_disposition(lines).blocks_download
     assert suggested_filename(lines) == "download"
+    assert time.perf_counter() - started < 2.0
+    folded = [("Content-Disposition", b"attachment;\r\n filename=a.txt\r\n\0")] * 20_000
+    started = time.perf_counter()
+    assert parse_content_disposition(folded).blocks_download
+    assert suggested_filename(folded) == "a.txt"
     assert time.perf_counter() - started < 2.0
 
 

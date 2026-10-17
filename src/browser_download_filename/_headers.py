@@ -5,14 +5,18 @@ order, and a header is looked up by name among them. The package does the
 same with the headers it is given: whatever shape they come in, they are read
 once into an ordered list of lines, and every lookup reads that list. A dict
 would lose repeated lines and their order.
+
+Ported in part from Chromium's net/http/http_response_headers.cc
+(BSD-3-Clause, see THIRD-PARTY-LICENSES).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Protocol, TypeAlias, cast
+from typing import NamedTuple, Protocol, TypeAlias, cast
 
 from ._bytes import header_bytes
+from ._http import assemble_raw_headers, locate_end_of_headers
 
 # The value of one header name: one line, or one line per item, as Scrapy
 # gives them. The list types are spelled out because list is invariant.
@@ -50,9 +54,35 @@ def _name_key(name: object) -> bytes:
     raise TypeError(f"a header name must be str or bytes, not {type(name).__name__}")
 
 
-def _value_bytes(value: object, encoding: str | None) -> bytes:
+class LineValue(NamedTuple):
+    """The value of a header line, as Chromium reads it."""
+
+    #: The value: its first line, joined with the lines that continue it.
+    value: bytes
+    #: Whether the value holds a NUL before the end of the headers.
+    has_nul: bool
+
+
+def line_value(value: str | bytes | bytearray | memoryview, encoding: str | None) -> LineValue:
+    """A header value, given as it was sent, read the way Chromium reads it.
+
+    The value is turned into its bytes (header_bytes), cut where a blank line
+    ends the headers (locate_end_of_headers), and its lines are joined as
+    the network stack joins them (assemble_raw_headers). A NUL anywhere
+    before the blank line makes HttpResponseHeaders::TryToCreate refuse the
+    whole response (HasEmbeddedNulls), even in a line that is not part of
+    the value, so has_nul looks at all of it.
+    """
+    data = header_bytes(value, encoding)
+    end = locate_end_of_headers(data)
+    if end is not None:
+        data = data[:end]
+    return LineValue(assemble_raw_headers(data), b"\0" in data)
+
+
+def _line_value(value: object, encoding: str | None) -> LineValue:
     if isinstance(value, (str, bytes, bytearray, memoryview)):
-        return header_bytes(value, encoding)
+        return line_value(value, encoding)
     raise TypeError(
         "a header value must be str or bytes, or a list or tuple of them, "
         f"not {type(value).__name__}"
@@ -65,10 +95,20 @@ def _describe(item: object) -> str:
     return type(item).__name__
 
 
+class HeaderLines(NamedTuple):
+    """A response's header lines, as Chromium reads them."""
+
+    #: Every line, in order, as (ASCII-lowercased name, value).
+    lines: list[tuple[bytes, bytes]]
+    #: Whether a name or a value holds a NUL, for which Chromium refuses the
+    #: response (see line_value).
+    has_nul: bool
+
+
 def header_lines(
     headers: object, encoding: str | None, *, argument: str, accepted: str
-) -> list[tuple[bytes, bytes]]:
-    """Every header line, in order, as (ASCII-lowercased name, value bytes).
+) -> HeaderLines:
+    """Every header line, in order, with each value read as in line_value.
 
     ``headers`` is walked once, so a generator works. Every str value is
     turned into bytes with ``encoding`` (see header_bytes), so both a shape
@@ -88,6 +128,7 @@ def header_lines(
     except TypeError:
         raise TypeError(f"{argument} must be {accepted}, not {type(headers).__name__}") from None
     lines: list[tuple[bytes, bytes]] = []
+    has_nul = False
     for pair in iterator:
         if not isinstance(pair, (tuple, list)) or len(pair) != 2:
             raise TypeError(
@@ -95,11 +136,12 @@ def header_lines(
             )
         name, value = pair
         key = _name_key(name)
-        if isinstance(value, (list, tuple)):
-            lines.extend((key, _value_bytes(item, encoding)) for item in value)
-        else:
-            lines.append((key, _value_bytes(value, encoding)))
-    return lines
+        # A list or tuple holds one value for each line with this name.
+        for item in value if isinstance(value, (list, tuple)) else (value,):
+            read = _line_value(item, encoding)
+            lines.append((key, read.value))
+            has_nul = has_nul or read.has_nul or b"\0" in key
+    return HeaderLines(lines, has_nul)
 
 
 def header_values(lines: list[tuple[bytes, bytes]], name: bytes) -> list[bytes]:

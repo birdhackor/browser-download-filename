@@ -8,7 +8,8 @@ on Linux, macOS and Windows.
 
 The parts of Chromium that the package ports come with unit tests:
 `net/http/http_content_disposition_unittest.cc`,
-`net/base/filename_util_unittest.cc` and `base/i18n/file_util_icu_unittest.cc`.
+`net/http/http_util_unittest.cc`, `net/base/filename_util_unittest.cc` and
+`base/i18n/file_util_icu_unittest.cc`.
 Their cases are ported one by one, including the expectations for Windows,
 into more than 600 tests in `tests/test_chromium_*.py`.
 
@@ -36,6 +37,7 @@ There are 831 cases:
 - headers seen in practice: both parameter orders, language tags, raw UTF-8,
   %-escapes, RFC 2047, quotes and semicolons, trailing semicolons, repeated
   headers;
+- header values with folded lines, other line breaks, blank lines and NULs;
 - URLs, Content-Type and X-Content-Type-Options headers, and `<a download>`
   values;
 - every charset label Chromium knows;
@@ -73,14 +75,17 @@ uv run pytest tests/browser --with-browser chromium --browser-report report.json
 headers from httpx2, httpx, requests, aiohttp and `urllib.request`. The tests
 in `tests/http_clients/` serve header lines byte for byte from a local HTTP
 server, among them repeated Content-Disposition lines, quotes left open, bytes
-in a legacy charset and in UTF-8, several Content-Type lines and
-X-Content-Type-Options. The tests fetch them with each library and pass the
-package what the usage page shows, and the result must be what the package
-gives for the lines as they were sent. Where the usage page says that another
-way gives another name, the tests check that name. They also check what the
-documentation says about the libraries themselves, and run aiohttp with both
-of its HTTP parsers. CI runs them on CPython 3.11 and 3.15, and the weekly
-canary with the newest versions of the libraries:
+in a legacy charset and in UTF-8, several Content-Type lines,
+X-Content-Type-Options, folded lines and other line breaks, NULs, and longer
+and more header lines than some libraries take. The tests fetch them with each
+library and pass the package what the usage page shows, and the result must be
+what the package gives for the lines as they were sent. Where the usage page
+says that a library reads such lines otherwise than Chrome or refuses them, or
+that another way gives another name, the tests check that name, or the
+exception the library raises. They also check what the documentation says
+about the libraries themselves, and run aiohttp with both of its HTTP
+parsers. CI runs them on CPython 3.11 and 3.15, and the weekly canary with
+the newest versions of the libraries:
 
 ```console
 uv sync
@@ -92,6 +97,8 @@ uv run pytest tests/http_clients --with-http-clients
 Hypothesis generates inputs to check that:
 
 - parsing any bytes or str never raises;
+- a header value with line breaks and NULs in it is read the same as a
+  line-by-line model of Chromium's parser reads it in a whole response head;
 - `suggested_filename` always returns a non-empty name with no character that
   is illegal anywhere, and none that is illegal at the start or end;
 - cleaning a name a second time does not change it, with two exceptions, both

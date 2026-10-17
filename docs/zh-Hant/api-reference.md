@@ -65,6 +65,8 @@ HeadersLike = SupportsHeaderItems | Iterable[tuple[str | bytes, HeaderValue]]
 
 名稱是字串或位元組，比對時不分 ASCII 大小寫。值（`HeaderValue`）是字串或位元組，或由它們組成的 list 或 tuple（每個元素是一行標頭）。標頭行保持原本的順序，重複的行都會算進去。標頭只會被走訪一次，所以 generator 也可以。
 
+每個值是該行標頭照送出時原樣的其餘部分。值裡可以有換行，照 Chrome 的方式讀：以空白或 tab 開頭的行會接上去，其他的行或空行則結束這個值（見[讀取標頭行](behavior.md#reading-header-lines)）。`content_disposition`、`content_type` 與 `parse_content_disposition` 收到的值也一樣。
+
 字串或位元組不是標頭：`suggested_filename` 收到它會丟出 `TypeError`；單一個 Content-Disposition 值請傳給 `content_disposition`。
 
 ## parse_content_disposition {#parse_content_disposition}
@@ -79,7 +81,7 @@ def parse_content_disposition(
 ) -> ContentDisposition
 ```
 
-照 Chromium 的 `net::HttpContentDisposition` 解析 Content-Disposition。`value` 是單一個標頭，可以是位元組，或 HTTP 函式庫解碼出的字串；也可以是回應的標頭（見 [`HeadersLike`](#headerslike)），這時會讀取其中每一行 Content-Disposition；`None` 代表沒有這個標頭。`type` 和 `filename` 取自第一行以逗號分隔的第一個值，也就是 Chrome 的下載程式碼讀取的那個值；`blocks_download` 則表示 Chrome 會不會拒絕這個回應。`fallback_charset` 和 `headers_encoding` 同上。
+照 Chromium 的 `net::HttpContentDisposition` 解析 Content-Disposition。`value` 是單一個標頭，可以是位元組，或 HTTP 函式庫解碼出的字串；也可以是回應的標頭（見 [`HeadersLike`](#headerslike)），這時會讀取其中每一行 Content-Disposition；`None` 代表沒有這個標頭。`type` 和 `filename` 取自第一行以逗號分隔的第一個值，也就是 Chrome 的下載程式碼讀取的那個值；`blocks_download` 則表示 Chrome 會不會因為這些值不同或標頭裡有 NUL 而拒絕這個回應。`fallback_charset` 和 `headers_encoding` 同上。
 
 ## ContentDisposition {#contentdisposition}
 
@@ -100,7 +102,7 @@ class ContentDisposition:
 | --- | --- |
 | `type` | `attachment`，以及 Chromium 不認得的其他合法處置類型，都是 `"attachment"`；`inline`、沒有標頭，或標頭不是以合法類型開頭時，是 `"inline"`。 |
 | `filename` | 解碼後的檔名；標頭裡沒有 Chromium 能用的檔名時是 `None`。它沒有經過清洗：可能含有路徑分隔符號、控制字元，以及其他放在檔名裡不安全的字元。 |
-| `blocks_download` | Chrome 是否拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`）：把 Content-Disposition 的值在引號外的逗號處切開、去掉前後的空白和 tab 之後，只要不是每個值都逐位元組相同，就是 `True`。`type` 和 `filename` 仍取自第一個值。見[有多個 Content-Disposition 標頭時](usage.md#several-content-disposition-headers)。 |
+| `blocks_download` | Chrome 是否因為以下兩種原因之一拒絕整個回應：把 Content-Disposition 的值在引號外的逗號處切開、去掉前後的空白和 tab 之後，只要不是每個值都逐位元組相同（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`），或標頭裡有 NUL，不論在哪個標頭的名稱或值裡（`ERR_INVALID_HTTP_RESPONSE`；見[讀取標頭行](behavior.md#reading-header-lines)），就是 `True`。Chrome 拒絕回應的原因不只這兩種，其他原因不會讓它變成 `True`（見[移植的限制](behavior.md#limits-of-the-port)）。`type` 和 `filename` 仍取自第一個值。見[有多個 Content-Disposition 標頭時](usage.md#several-content-disposition-headers)。 |
 | `is_attachment` | `type` 是否為 `"attachment"`。 |
 
 ## `__version__`

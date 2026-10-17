@@ -66,16 +66,16 @@ path = Path(download_dir) / name
 
 ## 從 HTTP 函式庫傳入標頭 {#pass-the-headers-from-your-http-library}
 
-Chromium 讀的是回應標頭的原始位元組，每一行各自獨立。Python 的 HTTP 函式庫會把標頭解碼成字串，有些還會把重複出現的標頭接成一行。下面每個函式庫都有一種傳法，得到的檔名跟傳入線上原始標頭行時相同：
+Chromium 讀的是回應標頭的原始位元組，每一行各自獨立。Python 的 HTTP 函式庫會把標頭解碼成字串，有些還會把重複出現的標頭接成一行。下面每個函式庫都有一種傳法，得到的檔名跟傳入線上原始標頭行時相同；例外是 HTTP 不允許的標頭行，例如折行，有些函式庫的讀法跟 Chrome 不同，或乾脆拒收；以及超過函式庫上限的標頭（見[接成一行的標頭與推測的位元組](#joined-lines-and-guessed-bytes)和 [HTTP 不允許的標頭行](#header-lines-that-http-does-not-allow)）：
 
-| 函式庫 | `headers` | `headers_encoding` |
-| --- | --- | --- |
-| httpx2、httpx | `response.headers.raw` | 不用傳：每一行都是位元組 |
-| aiohttp | `response.raw_headers` | 不用傳：每一行都是位元組 |
-| requests | `response.raw.headers` | `"latin-1"` |
-| `urllib.request` | `response.headers` | `"latin-1"` |
+| 函式庫 | `headers` | `headers_encoding` | 折行 |
+| --- | --- | --- | --- |
+| httpx2、httpx | `response.headers.raw` | 不用傳：每一行都是位元組 | 跟 Chrome 一樣接上 |
+| aiohttp | `response.raw_headers` | 不用傳：每一行都是位元組 | 接上，但保留下一行開頭的空白和 tab |
+| requests | `response.raw.headers` | `"latin-1"` | CR LF 之後的折行，連同兩側的空白和 tab 換成一個空白 |
+| `urllib.request` | `response.headers` | `"latin-1"` | 原樣交出，由本套件來接 |
 
-httpx2 和 httpx 的寫法見[替下載命名](#name-a-download)。aiohttp 把每一行標頭以位元組保存在 `response.raw_headers`，它的 `response.url` 也是 URL 物件：
+最後一欄說的是 CR LF 或 LF 之後的折行，見[接成一行的標頭與推測的位元組](#joined-lines-and-guessed-bytes)。httpx2 和 httpx 的寫法見[替下載命名](#name-a-download)。aiohttp 把每一行標頭以位元組保存在 `response.raw_headers`，它的 `response.url` 也是 URL 物件：
 
 ```python
 async with session.get(url) as response:
@@ -100,13 +100,26 @@ with urllib.request.urlopen(url) as response:
 
 requests、httpx 和 httpx2 的 `response.headers` 會用 `, ` 把同一個標頭的好幾行接成一行。搭配 `headers_encoding` 傳入（requests 是 `"latin-1"`，httpx 和 httpx2 是 `response.headers.encoding`）時，結果也一樣，除非最後一行以外的某一行 Content-Disposition 有沒關上的引號：接成一行之後，這個引號會延續到下一行。在第一行時，檔名可能把後面的內容吞進去；在任何一行時，切出來的值都可能改變，`blocks_download` 也跟著改變，不再能說明 Chrome 會不會拒絕這個回應（見[讀取 Content-Disposition](behavior.md#reading-content-disposition)）。
 
+折行是延續到下一行的標頭行，下一行以空白或 tab 開頭；Chrome 用一個空白把它接上（見[讀取標頭行](behavior.md#reading-header-lines)）。httpx2 和 httpx 的接法相同，`urllib.request` 則原樣交出，由本套件來接。requests 和 aiohttp 自己接的方式不同：requests 還會去掉 CR LF 換行之前的空白和 tab，aiohttp 則保留下一行開頭所有的空白和 tab。在引號裡面，這會改變檔名：`filename="a \r\n b.pdf"` 在 Chrome 是 `a  b.pdf`，用 requests 是 `a b.pdf`；`filename="wire\r\n\t file.pdf"` 在 Chrome 是 `wire file.pdf`，用 aiohttp 是 `wire  file.pdf`。這兩種差異本套件都無法還原。換行裡有單獨的 CR，或夾著只有 CR 的行時，則另當別論（見[HTTP 不允許的標頭行](#header-lines-that-http-does-not-allow)）。
+
 沒有 `headers_encoding` 時，本套件會推測每個字串原本的位元組（見[以字串傳入時](api-reference.md#inputs-as-str)）。函式庫以 Latin-1 解碼的舊式字元集位元組，例如 windows-1252 的 `caf\xe9.txt`，可能推測錯誤，檔名也就可能不同。
+
+### HTTP 不允許的標頭行 {#header-lines-that-http-does-not-allow}
+
+有些 HTTP 不允許的標頭行，Chrome 照樣會讀（見[讀取標頭行](behavior.md#reading-header-lines)），而各個函式庫不見得跟 Chrome 讀得一樣：
+
+- **NUL。** 標頭裡有 NUL 時，Chrome 會拒絕這個回應（見[有多個 Content-Disposition 標頭時](#several-content-disposition-headers)）。requests 和 `urllib.request` 會把標頭行裡的 NUL 交出來，`blocks_download` 會告訴你 Chrome 拒絕這個回應；除非 NUL 讓它們無法把那一行當成標頭行來讀（見下一項）。httpx2、httpx 和 aiohttp 則自己拒收這個回應，丟出例外。
+- **不是標頭行的行。** requests 和 `urllib.request` 遇到無法當成標頭行來讀的行，就停止讀取標頭，之後的標頭行都會遺失：值裡換行之後沒有冒號的文字，Chrome 會略過它；名稱裡有 NUL 的標頭，或以 NUL 開頭的行，Chrome 會因此拒絕這個回應；只有 CR 的行，例如值結尾的 CR 跟後面的換行構成的那一行，對 Chrome 來說不是空行。aiohttp 的 Python parser 也會在只有 CR 的行結束標頭。httpx2、httpx 和 aiohttp 遇到不是標頭行的行，就拒收這個回應。
+- **單獨的 CR。** 後面沒有 LF 的 CR 會換行，Chrome 如此，requests 和 `urllib.request` 也一樣。httpx2、httpx 和 aiohttp 的 C parser 會拒收這個回應；aiohttp 的 Python parser 會去掉行尾的 CR，遇到其他的 CR 則拒收。
+- **垂直 tab 和換頁**對 Chrome 來說是值的一部分。httpx2 和 httpx 會拒收這個回應。
+
+每個函式庫也都有自己的大小上限，超過就拒收：aiohttp 是單行超過約 8 KB 或超過約 128 行，requests 和 `urllib.request` 是單行超過 64 KiB 或超過約 100 行，httpx2 和 httpx 則是標頭總共超過 100 到 164 KiB，視位元組到達的方式而定。
 
 ### 有多個 Content-Disposition 標頭時 {#several-content-disposition-headers}
 
-一個回應可能送出不只一次 Content-Disposition：分成好幾行標頭，或在同一行裡用逗號接起好幾個值。Chromium 會在引號外的逗號處切開每一行，用第一個值決定檔名。只要有任何一個值跟第一個值不同，Chrome 就會拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`）。只有一個標頭、但引號外有逗號時也會這樣，例如 `attachment; filename=a,b.txt`。
+一個回應可能送出不只一次 Content-Disposition：分成好幾行標頭，或在同一行裡用逗號接起好幾個值。Chromium 會在引號外的逗號處切開每一行，用第一個值決定檔名。只要有任何一個值跟第一個值不同，Chrome 就會拒絕整個回應（`ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION`）。只有一個標頭、但引號外有逗號時也會這樣，例如 `attachment; filename=a,b.txt`。標頭裡有 NUL 時（不論在哪個標頭），Chrome 也會拒絕這個回應（`ERR_INVALID_HTTP_RESPONSE`；見[讀取標頭行](behavior.md#reading-header-lines)）。
 
-本套件拿到每一行標頭，就看得到所有的值，做法見[從 HTTP 函式庫傳入標頭](#pass-the-headers-from-your-http-library)。依名稱取出的標頭則不一樣：`urllib.request` 和 aiohttp 只給第一行，requests、httpx 和 httpx2 則把好幾行接成一行（見[接成一行的標頭與推測的位元組](#joined-lines-and-guessed-bytes)）。把標頭傳給 `suggested_filename`，或傳給 `parse_content_disposition`；後者的 `blocks_download` 會告訴你 Chrome 會不會拒絕這個回應：
+本套件拿到每一行標頭，就看得到所有的值，做法見[從 HTTP 函式庫傳入標頭](#pass-the-headers-from-your-http-library)。依名稱取出的標頭則不一樣：`urllib.request` 和 aiohttp 只給第一行，requests、httpx 和 httpx2 則把好幾行接成一行（見[接成一行的標頭與推測的位元組](#joined-lines-and-guessed-bytes)）。把標頭傳給 `suggested_filename`，或傳給 `parse_content_disposition`；後者的 `blocks_download` 會告訴你 Chrome 會不會因為這兩種原因之一拒絕這個回應：
 
 ```pycon
 >>> headers = [
@@ -119,6 +132,8 @@ ContentDisposition(type='attachment', filename='a.pdf', blocks_download=True)
 'a.pdf'
 >>> parse_content_disposition("attachment; filename=a,b.txt")
 ContentDisposition(type='attachment', filename='a', blocks_download=True)
+>>> parse_content_disposition([("X-Note", "a\x00b"), ("Content-Disposition", "attachment")])
+ContentDisposition(type='attachment', filename=None, blocks_download=True)
 ```
 
 Chrome 拒絕一個回應時，指向它的一般連結什麼都不會下載：Chrome 改為顯示錯誤頁面。有 `download` 屬性的連結則仍會開始一個下載，而這個下載會失敗；Chrome 給它的名字取自該屬性或網址，不看回應的 Content-Disposition 和 Content-Type。`suggested_filename` 不模擬這種拒絕：它照樣用第一個值決定檔名，上面的例子是 `a.pdf`。
