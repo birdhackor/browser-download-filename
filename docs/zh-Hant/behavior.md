@@ -76,7 +76,7 @@ Chrome 先把回應的標頭當成收到的位元組來讀，之後才讀個別�
 | Windows 不允許的字元（例如 `<`、`?`、`*`）會被替換 | 是 | 是 | 否 |
 | 結尾的空白會變成 | `_` | 被去掉 | 保留空白 |
 
-[Browsers workflow](https://github.com/birdhackor/browser-download-filename/actions/workflows/browsers.yml) 會用 Firefox，以及 Linux 和 macOS 上的 WebKit 下載每一個測試案例，每次執行的摘要都會列出它們跟 Chrome 檔名不同的案例。上表就是這些執行的結果，使用 Playwright 1.64：Firefox 157，以及代表 Safari 的 macOS 上的 WebKit 27.2；macOS 上的 WebKit 跟 Safari 一樣，透過 Apple 的網路程式碼決定下載檔名。831 個案例中，Firefox 有 423 個、macOS 上的 WebKit 有 309 個跟 Chrome 的檔名相同。
+[Browsers workflow](https://github.com/birdhackor/browser-download-filename/actions/workflows/browsers.yml) 會用 Firefox，以及 Linux 和 macOS 上的 WebKit 下載每一個測試案例，每次執行的摘要都會列出它們跟 Chrome 檔名不同的案例。上表就是這些執行的結果，使用 Playwright 1.64：Linux 上的 Chromium 156（代表 Chrome）和 Firefox 157，以及代表 Safari 的 macOS 上的 WebKit 27.2；macOS 上的 WebKit 跟 Safari 一樣，透過 Apple 的網路程式碼決定下載檔名。精確集合的 916 個案例中，Firefox 有 468 個、macOS 上的 WebKit 有 351 個跟 Chrome 的檔名相同；限制集合的 16 個案例中，Firefox 有 13 個、macOS 上的 WebKit 有 15 個相同（兩組案例的說明見[如何驗證](verification.md#a-real-chromium)）。Chrome 拒收回應（見[移植的限制](#limits-of-the-port)）、什麼都不下載的案例，另一個瀏覽器也什麼都不下載，才算跟 Chrome 相同。
 
 ## 移植的限制 {#limits-of-the-port}
 

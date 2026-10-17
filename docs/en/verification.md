@@ -31,7 +31,7 @@ The browser tests in `tests/browser/` serve each case from a local HTTP server
 that writes the response headers byte for byte, download it with Chromium
 through Playwright, and compare the suggested file name that Chromium reports
 with what `suggested_filename` returns for the same URL and headers.
-There are 831 cases:
+There are 932 cases:
 
 - the headers of Chromium's unit tests;
 - headers seen in practice: both parameter orders, language tags, raw UTF-8,
@@ -45,15 +45,16 @@ There are 831 cases:
   bytes in every multi-byte charset, samples of gb18030's four-byte
   characters, and the byte sequences on which Python's codecs and ICU
   disagree;
-- 150 headers made by randomly mutating the others.
+- 150 headers put together at random from pieces that hit the parser's edge
+  cases.
 
 The cases come in two sets, listed case by case in `tests/browser/corpus.py`.
-In the exact set (`exact_cases()`), the headers and the URL decide the name,
-and for every case Chromium must give what `chromium_expectation` in
+In the exact set (`exact_cases()`, 916 cases), the headers and the URL decide
+the name, and for every case Chromium must give what `chromium_expectation` in
 `tests/browser/test_browsers.py` predicts from the package's rules, or CI
 fails: the package's name, or, where the package says Chrome refuses the
 response, no download, or a name from the `download` attribute and the URL
-alone. The limited set holds
+alone. The limited set (16 cases) holds
 responses whose body Chromium sniffs for a MIME type, where the package uses
 the declared type instead (see [The MIME type](behavior.md#the-mime-type)):
 for each case, Chromium must start the download and give the name listed for

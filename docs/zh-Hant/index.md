@@ -45,6 +45,6 @@ python -m pip install browser-download-filename
 
 ## 有多精確 {#how-exact-it-is}
 
-標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 800 多個案例，檢查每一個結果；測試的細節見[如何驗證](verification.md)。Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)；本套件的檔名在哪些情況下可能跟 Chrome 不同，見其中的[移植的限制](behavior.md#limits-of-the-port)。
+標頭解析、字元集解碼和檔名規則，都是從釘選版本的 Chromium 原始碼移植過來的，Chromium 自己的單元測試案例也是本套件測試的一部分。CI 還會用真正的 Chromium 下載 900 多個案例，檢查每一個結果；測試的細節見[如何驗證](verification.md)。Chrome 還做了哪些事、本套件交給你自己處理（例如檔案已存在時替新檔編號），見[行為與瀏覽器差異](behavior.md)；本套件的檔名在哪些情況下可能跟 Chrome 不同，見其中的[移植的限制](behavior.md#limits-of-the-port)。
 
 下一步：範例在[使用方式](usage.md)，完整的 API 在 [API 參考](api-reference.md)。

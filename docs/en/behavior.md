@@ -170,10 +170,15 @@ The [Browsers
 workflow](https://github.com/birdhackor/browser-download-filename/actions/workflows/browsers.yml)
 downloads every test case with Firefox, and with WebKit on Linux and on macOS,
 and each run's summary lists the cases where they differ from Chrome.
-The table comes from those runs, with Playwright 1.64: Firefox 157, and WebKit
-27.2 on macOS for Safari, since WebKit on macOS names downloads with Apple's
-networking code, as Safari does. Of the 831 cases, Firefox gives Chrome's name
-for 423 and WebKit on macOS for 309.
+The table comes from those runs, with Playwright 1.64: Chromium 156 for Chrome
+and Firefox 157, both on Linux, and WebKit 27.2 on macOS for Safari, since
+WebKit on macOS names downloads with Apple's networking code, as Safari does.
+Of the 916 cases in the exact set, Firefox gives Chrome's name for 468 and
+WebKit on macOS for 351; of the 16 cases in the limited set, Firefox does for
+13 and WebKit on macOS for 15 (the two sets are described in [How it is
+checked](verification.md#a-real-chromium)). Where Chrome refuses a response (see
+[Limits of the port](#limits-of-the-port)) and downloads nothing, a browser
+gives Chrome's name only if it downloads nothing either.
 
 ## Limits of the port
 

@@ -71,7 +71,7 @@ supports CPython 3.11 and later, and PyPy.
 
 The parser, the charset decoders and the file name rules are ports of
 Chromium's code at a pinned revision, and Chromium's own unit test cases are
-part of the test suite. CI also downloads more than 800 cases with a real
+part of the test suite. CI also downloads more than 900 cases with a real
 Chromium and checks every result; [How it is checked](verification.md)
 describes the tests. [Behavior and browser differences](behavior.md) lists
 what Chrome does that this package leaves to you, such as numbering files that

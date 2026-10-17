@@ -21,7 +21,7 @@ inside quotes. On those headers, this package gives the name Chrome gives.
 - **Chromium's answer** — the header parser, the MIME type rules, the
   charset decoders and the file name sanitization are ports of Chromium's
   code at a pinned revision, and Chromium's own unit test cases are part of
-  the tests. CI downloads more than 800 cases with a real Chromium and checks
+  the tests. CI downloads more than 900 cases with a real Chromium and checks
   every result ([How it is
   checked](https://birdhackor.github.io/browser-download-filename/en/verification/)).
 - **The whole response** — pass all the headers of a response. As in Chrome,
