@@ -44,7 +44,7 @@
 **更接近 Chromium。**
 
 - 每一個標頭值，包括 `content_disposition`、`content_type` 和 `parse_content_disposition()` 的 `value`，都當成該行標頭照送出時原樣的其餘部分來讀（見[讀取標頭行](behavior.md#reading-header-lines)）：以空白或 tab 開頭的行用一個空白接上，其他的行或空行則結束這個值。0.1.0 把 CR 和 LF 當成值裡的字元：`attachment;\r\n filename=wire.pdf` 得不到檔名，`attachment; filename=a.pdf\r\nX-Note: 1` 則把下一行也吞進檔名；0.2.0 分別得到 `wire.pdf` 和 `a.pdf`。不含 CR 或 LF 的值不受這項改動影響。
-- `content_type` 照 Chrome 網路層讀 Content-Type 標頭的方式來讀（見 [MIME 類型](behavior.md#the-mime-type)）：類型到第一個空白、tab、`;` 或 `(` 為止；有好幾個以逗號分隔的值時，最後一個有類型的值勝出。所以網址是 `https://example.com/page` 時，`text/html(comment)`、`text/html charset=utf-8` 和 `text/plain, text/html` 都得到 `page.html`，0.1.0 則是 `page`。
+- `content_type` 照 Chrome 網路層讀 Content-Type 標頭的方式來讀（見 [MIME 類型](behavior.md#the-mime-type)）：類型到第一個空白、tab、`;` 或 `(` 為止；有好幾個以逗號分隔的值時，最後一個有類型的值勝出，`*/*` 這個值本身則不改變結果。所以網址是 `https://example.com/page` 時，`text/html(comment)`、`text/html charset=utf-8` 和 `text/plain, text/html` 都得到 `page.html`，0.1.0 則是 `page`。
 - feed 類型 `application/rss+xml` 和 `application/atom+xml` 跟 Chrome 一樣當成 `text/plain`：得到 `page.txt`，0.1.0 則分別是 `page.rss` 和 `page`。
 - Chrome 只對 `http:`、`https:`、`file:` 和 `filesystem:` 網址檢查內容來決定 MIME 類型。網址是其他 scheme 的合法網址時，例如 `ftp://example.com/page`，沒有給出類型的 `content_type`（例如空字串）就是 `text/plain`：得到 `page.txt`，0.1.0 則是 `page`。
 
@@ -53,8 +53,8 @@
 **改傳整組標頭。** 從傳單一個標頭改成傳全部的標頭，檔名可能改變：
 
 - `X-Content-Type-Options: nosniff` 會算數。有它時 Chrome 不檢查內容，沒有 Content-Type、或 Content-Type 沒有給出類型的回應就是 `text/plain`：`https://example.com/page` 得到 `page.txt`，0.1.0 則是 `page`。
-- 每一行 Content-Type 都算數，最後一個有類型的值勝出。`urllib.request` 和 aiohttp 依名稱取標頭時只給第一行：遇到 `text/plain` 和 `application/pdf` 兩行時，0.1.0 依第一行得到 `page.txt`，0.2.0 依兩行得到 `page.pdf`。
-- 檔名跟以前一樣取自第一行 Content-Disposition 的第一個值。requests、httpx 和 httpx2 的 `response.headers` 會把好幾行接成一行；接成一行的結果跟分開的各行相同，除非最後一行以外的某一行有沒關上的引號（見[接成一行的標頭與推測的位元組](usage.md#joined-lines-and-guessed-bytes)）。
+- 每一行 Content-Type 都算數：最後一個有類型的值勝出，`*/*` 這個值本身則不改變結果。`urllib.request` 和 aiohttp 依名稱取標頭時只給第一行：遇到 `text/plain` 和 `application/pdf` 兩行時，0.1.0 依第一行得到 `page.txt`，0.2.0 依兩行得到 `page.pdf`。
+- 檔名跟以前一樣取自第一行 Content-Disposition 的第一個值。requests、httpx 和 httpx2 的 `response.headers` 會把好幾行接成一行，結果可能跟分開的各行不同（見[接成一行的標頭與推測的位元組](usage.md#joined-lines-and-guessed-bytes)）。
 
 ## 0.1.0
 

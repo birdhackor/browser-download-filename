@@ -88,7 +88,8 @@ Some calls give another result in 0.2.0. The changes are of three kinds.
 - `content_type` is read the way Chrome's network stack reads a Content-Type
   header (see [The MIME type](behavior.md#the-mime-type)): the type ends at
   the first space, tab, `;` or `(`, and of comma-separated values, the last
-  one that gives a type wins. So with the URL `https://example.com/page`,
+  one that gives a type wins, while the value `*/*` itself changes nothing.
+  So with the URL `https://example.com/page`,
   `text/html(comment)`, `text/html charset=utf-8` and `text/plain, text/html`
   give `page.html`, where 0.1.0 gave `page`.
 - The feed types `application/rss+xml` and `application/atom+xml` are
@@ -117,15 +118,16 @@ change the name:
   and a response without a Content-Type, or with one that gives no type, is
   `text/plain`: `https://example.com/page` gives `page.txt`, where 0.1.0 gave
   `page`.
-- Every Content-Type line counts, and the last value that gives a type wins.
+- Every Content-Type line counts: the last value that gives a type wins, and
+  the value `*/*` itself changes nothing.
   `urllib.request` and aiohttp give the first line when you look a header up
   by name: for the lines `text/plain` and `application/pdf`, 0.1.0 gave
   `page.txt` for the first one, and 0.2.0 gives `page.pdf` for both.
 - The first value of the first Content-Disposition line names the file, as
   before. Lines joined into one, as the `response.headers` of requests, httpx
-  and httpx2 give them, give the same result as the lines themselves, unless
-  a line other than the last leaves a quote open (see [Joined lines and
-  guessed bytes](usage.md#joined-lines-and-guessed-bytes)).
+  and httpx2 give them, can give another result than the lines themselves
+  (see [Joined lines and guessed
+  bytes](usage.md#joined-lines-and-guessed-bytes)).
 
 ## 0.1.0
 
