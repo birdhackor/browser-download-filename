@@ -218,10 +218,10 @@ gives Chrome's name only if it downloads nothing either.
 - **Windows and macOS.** Chrome on Windows and macOS also asks the system
   which extension a MIME type has, while the package uses Chromium's built-in
   table, which is all Chrome on Linux uses: `platform="windows"` adds
-  Windows' rules for names, not the system's table. For a raw non-UTF-8 name
-  without a default encoding, Chrome on Windows decodes it with the system's
-  ANSI code page, where the package, like Chrome on Linux, does not use the
-  name.
+  Windows' rules for names, not the system's table. For raw non-UTF-8 bytes in
+  a name, without a default encoding, Chrome on Windows decodes them with the
+  system's ANSI code page, where the package drops them, as Chrome on Linux
+  does (see [Reading Content-Disposition](#reading-content-disposition)).
 - **Hosts.** Chromium converts a non-ASCII host with UTS #46; the package uses
   Python's IDNA 2003 codec. They can disagree on whether a host is valid (a
   right-to-left label that ends in a digit, a label longer than 63 characters)
