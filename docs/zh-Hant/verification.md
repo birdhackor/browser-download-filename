@@ -12,17 +12,17 @@ Chromium 用自己那份 ICU 解碼舊式字元集，結果跟 Python 的 codec 
 
 ## 真正的 Chromium {#a-real-chromium}
 
-`tests/browser/` 裡的瀏覽器測試，從本機的 HTTP 伺服器逐位元組送出每個案例的回應標頭，透過 Playwright 用 Chromium 下載，再把 Chromium 回報的建議檔名，跟 `suggested_filename` 對同樣的網址和標頭算出的結果比較。案例共有 932 個：
+`tests/browser/` 裡的瀏覽器測試，從本機的 HTTP 伺服器逐位元組送出每個案例的回應標頭，透過 Playwright 用 Chromium 下載，再把 Chromium 回報的建議檔名，跟 `suggested_filename` 對同樣的網址和標頭算出的結果比較。案例共有 936 個：
 
 - Chromium 單元測試裡的標頭；
 - 實務上看得到的標頭：兩種參數順序、語言標記、原始 UTF-8、百分比編碼、RFC 2047、引號和分號、結尾的分號、重複的標頭；
-- 含有折行、其他換行、空行和 NUL 的標頭值；
+- 含有折行、其他換行、空行和 NUL 的標頭值，以及名稱和冒號之間有空白和 tab 的標頭；
 - 網址、Content-Type 和 X-Content-Type-Options 標頭，以及 `<a download>` 的值；
 - Chromium 認得的每一個字元集標籤；
 - 每個單位元組字元集的每一個字元、每個多位元組字元集裡三個位元組以內的每一個字元、gb18030 四位元組字元的取樣，以及 Python codec 和 ICU 看法不同的位元組序列；
 - 150 個從觸及解析器邊界情況的片段隨機拼成的標頭。
 
-案例分成兩組，在 `tests/browser/corpus.py` 裡逐案列出。精確集合（`exact_cases()`，916 個案例）的檔名由標頭和網址決定：每一個案例，Chromium 都必須給出 `tests/browser/test_browsers.py` 的 `chromium_expectation` 依本套件的規則預測的結果，否則 CI 失敗：通常是本套件的檔名；本套件判定 Chrome 會拒收時，則是不下載，或只由 `download` 屬性和網址決定的檔名。限制集合（16 個案例）是 Chromium 會檢查內容來決定 MIME 類型的回應，本套件在這裡改用宣告的類型（見 [MIME 類型](behavior.md#the-mime-type)）：每一個案例，Chromium 都必須開始下載，並給出針對其內容列出的檔名，本套件也必須給出針對其標頭和網址列出的檔名。同一批案例也會用 Firefox，以及 Linux 和 macOS 上的 WebKit 執行；這些執行不會因為結果不同而失敗，而是在摘要裡列出跟 Chrome 檔名不同的案例（見[行為與瀏覽器差異](behavior.md#other-browsers)）。
+案例分成兩組，在 `tests/browser/corpus.py` 裡逐案列出。精確集合（`exact_cases()`，920 個案例）的檔名由標頭和網址決定：每一個案例，Chromium 都必須給出 `tests/browser/test_browsers.py` 的 `chromium_expectation` 依本套件的規則預測的結果，否則 CI 失敗：通常是本套件的檔名；本套件判定 Chrome 會拒收時，則是不下載，或只由 `download` 屬性和網址決定的檔名。限制集合（16 個案例）是 Chromium 會檢查內容來決定 MIME 類型的回應，本套件在這裡改用宣告的類型（見 [MIME 類型](behavior.md#the-mime-type)）：每一個案例，Chromium 都必須開始下載，並給出針對其內容列出的檔名，本套件也必須給出針對其標頭和網址列出的檔名。同一批案例也會用 Firefox，以及 Linux 和 macOS 上的 WebKit 執行；這些執行不會因為結果不同而失敗，而是在摘要裡列出跟 Chrome 檔名不同的案例（見[行為與瀏覽器差異](behavior.md#other-browsers)）。
 
 自己執行瀏覽器測試：
 

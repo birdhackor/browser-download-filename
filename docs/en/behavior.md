@@ -174,6 +174,7 @@ is still read. On the rest they differ:
 | RFC 2047 encoded words are decoded | yes | yes | no |
 | RFC 2231 continuations (`filename*0=`) are joined | no | yes | no |
 | Characters Windows does not allow, such as `<`, `?` and `*`, are replaced | yes | yes | no |
+| A header with spaces or tabs between its name and the colon is read | yes | no | no |
 | A trailing space becomes | `_` | nothing | a space |
 
 The [Browsers
@@ -183,7 +184,7 @@ and each run's summary lists the cases where they differ from Chrome.
 The table comes from those runs, with Playwright 1.64: Chromium 156 for Chrome
 and Firefox 157, both on Linux, and WebKit 27.2 on macOS for Safari, since
 WebKit on macOS names downloads with Apple's networking code, as Safari does.
-Of the 916 cases in the exact set, Firefox gives Chrome's name for 468 and
+Of the 920 cases in the exact set, Firefox gives Chrome's name for 468 and
 WebKit on macOS for 351; of the 16 cases in the limited set, Firefox does for
 13 and WebKit on macOS for 15 (the two sets are described in [How it is
 checked](verification.md#a-real-chromium)). Where Chrome refuses a response (see

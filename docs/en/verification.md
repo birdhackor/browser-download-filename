@@ -31,13 +31,14 @@ The browser tests in `tests/browser/` serve each case from a local HTTP server
 that writes the response headers byte for byte, download it with Chromium
 through Playwright, and compare the suggested file name that Chromium reports
 with what `suggested_filename` returns for the same URL and headers.
-There are 932 cases:
+There are 936 cases:
 
 - the headers of Chromium's unit tests;
 - headers seen in practice: both parameter orders, language tags, raw UTF-8,
   %-escapes, RFC 2047, quotes and semicolons, trailing semicolons, repeated
   headers;
-- header values with folded lines, other line breaks, blank lines and NULs;
+- header values with folded lines, other line breaks, blank lines and NULs,
+  and header names with spaces and tabs before the colon;
 - URLs, Content-Type and X-Content-Type-Options headers, and `<a download>`
   values;
 - every charset label Chromium knows;
@@ -49,7 +50,7 @@ There are 932 cases:
   cases.
 
 The cases come in two sets, listed case by case in `tests/browser/corpus.py`.
-In the exact set (`exact_cases()`, 916 cases), the headers and the URL decide
+In the exact set (`exact_cases()`, 920 cases), the headers and the URL decide
 the name, and for every case Chromium must give what `chromium_expectation` in
 `tests/browser/test_browsers.py` predicts from the package's rules, or CI
 fails: the package's name, or, where the package says Chrome refuses the
