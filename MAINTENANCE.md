@@ -227,6 +227,10 @@ PyPI Trusted Publisher 必須綁定：owner `birdhackor`、repository
 專案尚未存在時用 pending publisher，填完全相同的值。GitHub environment `pypi` 的
 deployment tag 規則只允許 `v*`。
 
+repository 有兩個 ruleset：tag `v*` 禁止 update、delete 與 force-push，沒有 bypass
+（immutable release tags）；`main` 要求 status checks `ci` 與 `browsers` 通過，並禁止刪除與
+force-push，bypass：repo admin。
+
 ## 發布後與補救
 
 1. 版本還沒寫進 PyPI 時（例如 publish 之前的 job 失敗），修好後用 `workflow_dispatch`
@@ -270,27 +274,9 @@ scheduled workflow 只在 default branch 執行，public repository 60 天沒有
 
 `docs/en` 與 `docs/zh-Hant` 各自是一個 zensical 站（`zensical.en.toml`、
 `zensical.zh-Hant.toml`），`.github/workflows/docs.yml` 在 main 的 `docs/**` 有變動時建置兩個
-語言（`--strict`：連到不存在的頁面或 anchor 會讓建置失敗、不部署）、寫入根目錄的轉址頁，部署到 GitHub Pages。兩種語言的頁面一一對應；中文標題用
+語言（`--strict`：連到不存在的頁面或 anchor 會讓建置失敗、不部署）、寫入根目錄的轉址頁，部署到 GitHub Pages（Settings → Pages 的 Source 是 GitHub Actions）。兩種語言的頁面一一對應；中文標題用
 `{#...}` 指定跟英文相同的 anchor，讓兩邊的連結一致。本機預覽：
 
 ```sh
 uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
 ```
-
-## 上線待辦
-
-- [ ] 把開發分支合併進 default branch `main`。合併後到首發之前，週三的 canary 裡
-  `published-package-on-newest-python` 會因為 PyPI 上還沒有套件而失敗，這是預期的。
-- [ ] 在 PyPI 建立 pending publisher：owner `birdhackor`、repository
-  `browser-download-filename`、workflow `release.yml`、environment `pypi`。
-- [ ] 在 GitHub 建立 environment `pypi`，deployment branches and tags 只允許 tag `v*`
-  （可再加 required reviewers）。
-- [ ] 建立 ruleset：tag `v*` 禁止 update、delete 與 force-push（immutable release tags）。
-- [ ] 建立 ruleset：`main` 要求 status checks `ci` 與 `browsers` 通過（bypass：repo admin）。
-- [ ] Settings → Pages 的 Source 選 GitHub Actions，然後手動跑一次 `docs.yml`。
-- [ ] 安裝 Renovate GitHub App 並允許這個 repository。
-- [ ] 在 healthchecks.io 建立 check（週期 7 天、grace 1 天），把 ping URL 存成 repository
-  secret `HEALTHCHECKS_PING_URL`。
-- [ ] main 的 `ci` 與 `browsers` 都綠之後，對同一個 commit 推送 tag `v0.1.0`，確認 PyPI
-  頁面與文件網站。
-- [ ] 首發之後，用 `workflow_dispatch` 手動跑一次 canary，確認 healthchecks.io 收到第一次 ping。
