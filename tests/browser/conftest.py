@@ -28,6 +28,12 @@ INDEX_PAGE = (
     b"<!doctype html><meta charset=utf-8><title>downloads</title><a id=link href=#>link</a>"
 )
 SETS = ("exact", "limited")
+# The Browsers workflow writes each Markdown report to a job's step summary,
+# which GitHub drops whole above 1024k. A name whose escaped form is longer
+# than CELL_LIMIT is shown there by its two ends and its length; the JSON
+# report keeps it whole.
+STEP_SUMMARY_LIMIT = 1024 * 1024
+CELL_LIMIT = 120
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -156,18 +162,23 @@ def report(request: pytest.FixtureRequest) -> Iterator[Report]:
         return
     target = Path(path)
     target.write_text(json.dumps(collected.rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    target.with_suffix(".md").write_text(markdown_report(collected.rows), encoding="utf-8")
+
+
+def markdown_report(rows: list[dict[str, Any]]) -> str:
+    """The counts for each browser and set, then a table of the cases that differ."""
     # "expected" is the name Chrome gives: the package's in the exact set, the
     # one the corpus lists in the limited set.
-    differing = [row for row in collected.rows if row["expected"] != row["result"]]
+    differing = [row for row in rows if row["expected"] != row["result"]]
     lines = []
-    for engine, version in dict.fromkeys((row["engine"], row["version"]) for row in collected.rows):
+    for engine, version in dict.fromkeys((row["engine"], row["version"]) for row in rows):
         for name in SETS:
-            rows = [row for row in collected.rows if row["engine"] == engine and row["set"] == name]
-            if rows:
-                same = sum(row["expected"] == row["result"] for row in rows)
+            in_set = [row for row in rows if row["engine"] == engine and row["set"] == name]
+            if in_set:
+                same = sum(row["expected"] == row["result"] for row in in_set)
                 lines.append(
-                    f"- {engine} {version}, {name} set: {len(rows)} cases, {same} same as Chrome,"
-                    f" {len(rows) - same} differ"
+                    f"- {engine} {version}, {name} set: {len(in_set)} cases, {same} same as Chrome,"
+                    f" {len(in_set) - same} differ"
                 )
     if differing:
         lines += [
@@ -180,11 +191,29 @@ def report(request: pytest.FixtureRequest) -> Iterator[Report]:
             f" | {_cell(row['ours'])} | {_cell(row['result'])} |"
             for row in differing
         ]
-    target.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
 
 
 def _cell(value: str | None) -> str:
     if value is None:
         return "*(no download)*"
-    escaped = value.encode("unicode_escape").decode("ascii").replace("|", "\\|")
-    return f"`{escaped}`"
+    # unicode_escape escapes each character on its own, so the name can be cut
+    # between any two characters.
+    escaped = [char.encode("unicode_escape").decode("ascii").replace("|", "\\|") for char in value]
+    if sum(map(len, escaped)) <= CELL_LIMIT:
+        return f"`{''.join(escaped)}`"
+    head = _leading(escaped, CELL_LIMIT * 2 // 3)
+    tail = _leading(escaped[::-1], CELL_LIMIT // 3)[::-1]
+    return f"`{''.join(head)}` ... `{''.join(tail)}` ({len(value)} characters)"
+
+
+def _leading(escaped: list[str], limit: int) -> list[str]:
+    """The first escaped characters, as many as fit in limit."""
+    taken: list[str] = []
+    size = 0
+    for char in escaped:
+        size += len(char)
+        if size > limit:
+            break
+        taken.append(char)
+    return taken

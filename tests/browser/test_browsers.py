@@ -17,7 +17,7 @@ import pytest
 
 from browser_download_filename import parse_content_disposition, suggested_filename
 
-from .conftest import BrowserSession, Report, _Server
+from .conftest import STEP_SUMMARY_LIMIT, BrowserSession, Report, _Server, markdown_report
 from .corpus import BrowserCase, LimitedCase, all_cases
 
 CASES = all_cases()
@@ -133,3 +133,24 @@ def test_the_server_sends_the_header_lines_of_each_case_byte_for_byte(server: _S
         lines = b"".join(name + b": " + value + b"\r\n" for name, value in case.response_headers)
         assert received.startswith(b"HTTP/1.1 200 OK\r\n" + lines), case.id
         assert received.endswith(b"\r\n\r\n" + case.body), case.id
+
+
+def test_the_markdown_report_lists_every_differing_case_within_a_step_summary() -> None:
+    # Every case differs, in three long names of characters with the longest
+    # escape.
+    name = "\U0001f4c4" * 1000
+    rows = [
+        {
+            "engine": "firefox",
+            "version": "157.0",
+            "set": "limited" if isinstance(case, LimitedCase) else "exact",
+            "case": case.id,
+            "expected": name,
+            "ours": name,
+            "result": name[1:],
+        }
+        for case in CASES
+    ]
+    markdown = markdown_report(rows)
+    assert markdown.count("\n| firefox | ") == len(CASES)
+    assert len(markdown.encode()) <= STEP_SUMMARY_LIMIT
