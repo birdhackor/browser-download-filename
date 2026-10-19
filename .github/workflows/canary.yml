@@ -12,7 +12,7 @@ permissions:
 jobs:
   published-package-on-newest-python:
     name: run the published package on the newest CPython (beta or later)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,7 +54,7 @@ jobs:
 
   newest-dependencies:
     name: test with the newest dependencies
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -71,7 +71,7 @@ jobs:
 
   newest-chromium:
     name: compare with the newest Playwright Chromium
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -103,7 +103,7 @@ jobs:
   # read it, but the published package keeps working meanwhile.
   chromium-drift:
     name: Chromium source changed since the ported revision
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -118,7 +118,7 @@ jobs:
   ping-dead-mans-switch:
     name: ping dead-man's switch
     needs: [published-package-on-newest-python, newest-dependencies, newest-chromium]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions: {}
     steps:
       - name: Ping configured endpoint after every canary passes

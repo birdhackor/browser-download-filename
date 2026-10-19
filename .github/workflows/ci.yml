@@ -11,7 +11,7 @@ permissions:
 jobs:
   lint:
     name: lint and type-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -26,7 +26,7 @@ jobs:
 
   build:
     name: build wheel and sdist
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-26.04]
         python: ["3.11", "3.12", "3.13", "3.14", "3.15", "pypy3.11"]
         include:
           - os: macos-latest
@@ -86,7 +86,7 @@ jobs:
   http-clients:
     name: test with HTTP clients on Python ${{ matrix.python }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -119,7 +119,7 @@ jobs:
   sdist:
     name: build and test the unpacked sdist
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions: {}
     steps:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -159,7 +159,7 @@ jobs:
 
   manifest:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -184,7 +184,7 @@ jobs:
   verify-batch:
     name: verify release batch
     needs: [lint, test, http-clients, sdist, manifest]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -223,7 +223,7 @@ jobs:
     # names change with the matrix, so required checks target this name.
     needs: [lint, build, test, http-clients, sdist, manifest, verify-batch]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Assert every required job succeeded
         shell: bash

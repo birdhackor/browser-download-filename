@@ -269,6 +269,9 @@ scheduled workflow 只在 default branch 執行，public repository 60 天沒有
   `http-clients` job 檢查文件對它們的說法，但新版可能棄用文件叫使用者傳的屬性，或新增
   更合適的屬性，這兩種情況都不會讓測試失敗（見〈HTTP 函式庫測試〉）。
 - pytest、Hypothesis、ruff、mypy、twine、zensical 合成 "Python development tools" 一組。
+- Linux 的 job 釘在 `ubuntu-26.04`。`runs-on:` 直接寫的標籤由 github-actions manager
+  追蹤，歸在 "GitHub Actions pins" 一組；`ci.yml` 的 test matrix 與 `browsers.yml` 的
+  report matrix 經 `${{ matrix.os }}` 帶入，Renovate 看不到，升級時在同一個 PR 手動改。
 
 ## 文件
 
