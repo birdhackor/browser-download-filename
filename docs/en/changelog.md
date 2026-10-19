@@ -4,6 +4,17 @@ Each release names the Chromium revision it follows. A release that follows a
 newer revision can return different names wherever Chromium changed its rules,
 even when the API stays the same.
 
+## 0.2.1
+
+- Follows the same Chromium revision as 0.2.0,
+  `dfd5cca812cefda32e909ae39965ed22041d5e65` (main, 2026-10-16), and its
+  ICU 78.
+- Importing the package no longer loads `importlib.metadata`, which took more
+  than half of the import time; `__version__` reads the installed version when
+  it is first used.
+- The usage page shows how to name a download without the extension of its
+  Content-Type: [Ignore the Content-Type](usage.md#ignore-the-content-type).
+
 ## 0.2.0
 
 - Follows the same Chromium revision as 0.1.0,

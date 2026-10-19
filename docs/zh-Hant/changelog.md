@@ -2,6 +2,12 @@
 
 每個版本都會註明它跟隨的 Chromium 版本。跟隨較新 Chromium 版本的發布，即使 API 沒變，凡是 Chromium 改了規則的地方，回傳的檔名也可能不同。
 
+## 0.2.1
+
+- 跟 0.2.0 一樣，跟隨 Chromium `dfd5cca812cefda32e909ae39965ed22041d5e65`（main，2026-10-16）及其 ICU 78。
+- import 本套件時不再載入 `importlib.metadata`，它原本佔了 import 時間的一半以上；`__version__` 改在第一次用到時才讀取已安裝的版本。
+- 使用方式說明了如何命名而不加上 Content-Type 的副檔名：見[不理會 Content-Type](usage.md#ignore-the-content-type)。
+
 ## 0.2.0
 
 - 跟 0.1.0 一樣，跟隨 Chromium `dfd5cca812cefda32e909ae39965ed22041d5e65`（main，2026-10-16）及其 ICU 78。
