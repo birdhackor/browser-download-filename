@@ -5,6 +5,8 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -39,6 +41,26 @@ def test_version_matches_project_metadata() -> None:
         pytest.skip("not running from a source checkout")
     project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
     assert browser_download_filename.__version__ == project["version"]
+
+
+def test_importlib_metadata_is_loaded_only_when_the_version_is_read() -> None:
+    def loads_importlib_metadata(statement: str) -> bool:
+        code = f"import sys\n{statement}\nprint('importlib.metadata' in sys.modules)"
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip() == "True"
+
+    if loads_importlib_metadata("pass"):
+        pytest.skip("this interpreter loads importlib.metadata at startup")
+    assert not loads_importlib_metadata("import browser_download_filename")
+    assert loads_importlib_metadata("import browser_download_filename as b; b.__version__")
+
+
+def test_a_misspelled_name_is_reported_at_run_time_and_by_type_checkers() -> None:
+    # mypy reports this ignore as unused if it takes the misspelled name for
+    # the str that a module __getattr__ returns.
+    with pytest.raises(AttributeError, match="sugested_filename"):
+        _ = browser_download_filename.sugested_filename  # type: ignore[attr-defined]
 
 
 def test_content_disposition_is_a_frozen_value() -> None:

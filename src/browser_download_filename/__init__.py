@@ -10,13 +10,11 @@ malformed header. :func:`sanitize_filename` applies that sanitization to a
 name from anywhere else.
 """
 
-from importlib.metadata import version as _version
+from typing import TYPE_CHECKING
 
 from ._content_disposition import ContentDisposition, parse_content_disposition
 from ._filename import sanitize_filename, suggested_filename
 from ._headers import HeadersLike
-
-__version__ = _version("browser-download-filename")
 
 __all__ = [
     "ContentDisposition",
@@ -26,3 +24,19 @@ __all__ = [
     "sanitize_filename",
     "suggested_filename",
 ]
+
+# Loading importlib.metadata takes most of the import time, so __version__ is
+# read when it is first used. Type checkers see only its declaration: a module
+# __getattr__ would make them take any misspelled name for a str.
+if TYPE_CHECKING:
+    __version__: str
+else:
+
+    def __getattr__(name: str) -> str:
+        if name != "__version__":
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        global __version__
+        from importlib.metadata import version
+
+        __version__ = version("browser-download-filename")
+        return __version__

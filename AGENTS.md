@@ -22,7 +22,7 @@ uv run pytest tests/test_behavior.py -k precedence
 uv run pytest "tests/test_docs.py::test_examples[README.md]"     # 單一文件的範例；id 是相對路徑，如 docs/en/usage.md
 ```
 
-`__version__` 讀的是已安裝套件的 metadata：沒有安裝、只把 `src` 加進 `PYTHONPATH` 時，import 會丟 `PackageNotFoundError`。一律透過 `uv run` 執行。
+`__version__` 在第一次用到時讀已安裝套件的 metadata（載入 `importlib.metadata` 佔了 import 時間的大半）：沒有安裝、只把 `src` 加進 `PYTHONPATH` 時，import 照常成功，讀 `__version__` 才丟 `PackageNotFoundError`，而測試會讀它。一律透過 `uv run` 執行。
 
 瀏覽器比對測試要先裝 Playwright 釘的瀏覽器：
 
@@ -93,7 +93,7 @@ uvx --python 3.15 zensical==0.0.70 build --config-file zensical.zh-Hant.toml --c
 
 - `test_chromium_*.py`：逐案移植的 Chromium 單元測試。`tests/browser/corpus.py` 直接 import `test_chromium_content_disposition.py` 的案例清單，改名或改形狀會牽動瀏覽器語料。上游的 `HttpContentDispositionTest` 把每個案例組成一份回應標頭、經 `AssembleRawHeaders` 再解析，所以這些案例走公開的 `parse_content_disposition`；只有 `test_contains_nul` 走 `_parse`（上游直接用字串建構子）。`test_chromium_http_util.py` 把 `AssembleRawHeaders` 的案例改成逐值的形式。`test_chromium_filename_util.py` 經 `_get_suggested_filename` 直接給 Chromium 核心收到的 `mime_type`，不經 `_mime` 的推導。
 - `test_mime.py`：`_mime` 的網路層解析、X-Content-Type-Options 與可 sniff 型別的判斷、URLLoader 的轉換，以及公開入口如何從 `headers` 與 `content_type` 取得 MIME type。
-- `test_api.py` 鎖住公開名稱、參數順序與參數種類（positional-only、keyword-only）。改 API 時一起改它與兩種語言的 `api-reference.md`。
+- `test_api.py` 鎖住公開名稱、參數順序與參數種類（positional-only、keyword-only），也檢查 import 套件時不載入 `importlib.metadata`。改 API 時一起改它與兩種語言的 `api-reference.md`。
 - `test_headers.py`：`HeadersLike` 的各種形狀、順序、只走訪一次、`content_disposition=` 的取代、`blocks_download` 的規則，以及值裡的換行、空行與 NUL 照線上的方式讀。`SHAPES` 標成 `HeadersLike`，讓 mypy 檢查這些形狀在型別上也被接受。
 - `test_docs.py` 執行 README 與 `docs/*/*.md` 裡每個 ```` ```pycon ```` 區塊，同一份文件的區塊共用命名空間；行為一改，範例的輸出也要跟著改。需要網路、不該執行的範例用 ```` ```python ````。它也禁止 README、`docs`、`MAINTENANCE.md`、`src`、`tests`、`scripts` 出現看不見或會重排文字的字元（例如 U+202E、全形空白）：程式碼裡寫成 escape，文件裡寫成 U+XXXX。
 - `test_charset.py` 把 ICU 狀態表接受的每個序列的解碼摘要跟 `MULTI_BYTE_DIGESTS` 比較，所以某個 Python 版本的 CJK codec 一改就會失敗。修法是讓 generator 把差異也寫成修正，不是放寬測試。
