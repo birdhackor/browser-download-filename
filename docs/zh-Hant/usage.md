@@ -175,6 +175,28 @@ Chrome 拒絕一個回應時，指向它的一般連結什麼都不會下載：C
 'report.pdf'
 ```
 
+### 不理會 Content-Type {#ignore-the-content-type}
+
+要照 Chrome 的規則命名，但不讓回應的 MIME 類型加上或修正副檔名，就傳 `content_type="application/octet-stream"`。它會取代 `headers` 裡的 Content-Type，而 Chrome 不會為這個類型加上或修正副檔名：
+
+```pycon
+>>> headers = [("Content-Type", "application/pdf"), ("X-Content-Type-Options", "nosniff")]
+>>> suggested_filename(headers, url="https://example.com/get.php?id=1")
+'get.pdf'
+>>> suggested_filename(
+...     headers, url="https://example.com/get.php?id=1", content_type="application/octet-stream"
+... )
+'get.php'
+>>> suggested_filename(headers, url="https://example.com/report", content_type="")
+'report.txt'
+>>> suggested_filename(
+...     headers, url="https://example.com/report", content_type="application/octet-stream"
+... )
+'report'
+```
+
+空的 `content_type` 做不到這件事：它是一個空的 Content-Type，Chrome 不檢查內容時會當成 `text/plain`，像這裡送了 `X-Content-Type-Options: nosniff` 的情形。`headers` 和 `content_type` 都不傳也不會使用 MIME 類型，但這時 Content-Disposition 就得另外用 `content_disposition` 傳入。
+
 ### Chrome 檢查內容時 {#when-chrome-sniffs-the-body}
 
 除非回應送出 `X-Content-Type-Options: nosniff`，否則 Content-Type 沒有給或提供的資訊太少時（`text/plain`、`application/octet-stream`、XML、Microsoft Office 類型和未知的類型），Chrome 會檢查內容的開頭（MIME sniffing），可能改用跟標頭不同的 MIME 類型。本套件看不到內容，所以用標頭宣告的類型，得到的檔名可能跟 Chrome 和 Playwright 回報的不同：沒有 Content-Type、內容是 HTML 的回應，在 Chrome 是 `page.html`，在本套件則是 `page`。要精確預測檔名，就讓實際的回應送出 `X-Content-Type-Options: nosniff`、改用 Chrome 不檢查內容的類型，或在 Content-Disposition 裡給出檔名。

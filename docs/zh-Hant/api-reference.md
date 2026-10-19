@@ -26,7 +26,7 @@ Chromium 替一次下載建議的檔名（`net::GetSuggestedFilename`），也�
 | `headers` | 回應的標頭（見 [`HeadersLike`](#headerslike)）；沒有時傳 `None`。從中讀取三個標頭：Content-Disposition，取第一行以逗號分隔的第一個值；每一行 Content-Type，用來決定 MIME 類型；X-Content-Type-Options，它的第一個值決定 Chrome 會不會檢查內容、改用別的 MIME 類型（見 [MIME 類型](behavior.md#the-mime-type)）。 |
 | `url` | 回應的最終網址（跟隨重新導向之後）；沒有網址時傳 `None`。Content-Disposition 和 `download_attribute` 都沒有提供檔名時，檔名取自路徑的最後一段（`about:` 和 `data:` 網址取不到）；取不到而且 `default_name` 是 `None` 時，改用主機名稱。有 `headers` 或 `content_type` 時，它的 scheme 也決定 Chrome 能不能檢查內容來決定 MIME 類型：只有 `http:`、`https:`、`file:` 和 `filesystem:` 網址的內容會被檢查；`url` 是 `None` 時，本套件當成是其中之一（見 [MIME 類型](behavior.md#the-mime-type)）。 |
 | `content_disposition` | Content-Disposition 標頭，可以是位元組，或 HTTP 函式庫解碼出的字串。預設的 `None` 表示從 `headers` 讀取（有傳的話）。其他任何值都會取代 `headers` 裡所有的 Content-Disposition 行，空字串也一樣：要忽略伺服器給的檔名，就傳 `""`。只使用它以逗號分隔的第一個值。 |
-| `content_type` | Content-Type 標頭，可以是位元組，或 HTTP 函式庫解碼出的字串。預設的 `None` 表示從 `headers` 讀取（有傳的話）。其他任何值都會取代 `headers` 裡所有的 Content-Type 行；空字串代表一個空的 Content-Type。檔名不是取自 Content-Disposition 時，用 MIME 類型補上或修正副檔名；`headers` 和 `content_type` 都沒有時，不使用任何 MIME 類型。 |
+| `content_type` | Content-Type 標頭，可以是位元組，或 HTTP 函式庫解碼出的字串。預設的 `None` 表示從 `headers` 讀取（有傳的話）。其他任何值都會取代 `headers` 裡所有的 Content-Type 行；空字串代表一個空的 Content-Type。檔名不是取自 Content-Disposition 時，用 MIME 類型補上或修正副檔名；`headers` 和 `content_type` 都沒有時，不使用任何 MIME 類型。`"application/octet-stream"` 不會補上或修正副檔名（見[不理會 Content-Type](usage.md#ignore-the-content-type)）。 |
 | `download_attribute` | `<a download>` 屬性的值。Content-Disposition 沒有提供檔名時使用。 |
 | `default_name` | 沒有任何地方提供檔名時使用的名稱，不能是空字串。若為 `None`，先嘗試網址的主機名稱，最後才用 `download`。 |
 | `fallback_charset` | 用來解碼 `filename` 和網址路徑裡非 UTF-8 原始位元組的字元集；Chrome 在這裡用的是瀏覽器的預設文字編碼。必須是 Chromium 認得的標籤，例如 `"windows-1252"` 或 `"big5"`。 |

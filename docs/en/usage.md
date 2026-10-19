@@ -305,6 +305,35 @@ nor `content_type` no MIME type is used:
 'report.pdf'
 ```
 
+### Ignore the Content-Type
+
+To name a download by Chrome's rules but without the extension that the
+response's MIME type would add or correct, pass
+`content_type="application/octet-stream"`. It takes the place of the
+Content-Type in `headers`, and Chrome adds and corrects no extension for it:
+
+```pycon
+>>> headers = [("Content-Type", "application/pdf"), ("X-Content-Type-Options", "nosniff")]
+>>> suggested_filename(headers, url="https://example.com/get.php?id=1")
+'get.pdf'
+>>> suggested_filename(
+...     headers, url="https://example.com/get.php?id=1", content_type="application/octet-stream"
+... )
+'get.php'
+>>> suggested_filename(headers, url="https://example.com/report", content_type="")
+'report.txt'
+>>> suggested_filename(
+...     headers, url="https://example.com/report", content_type="application/octet-stream"
+... )
+'report'
+```
+
+An empty `content_type` does not do this: it is an empty Content-Type, which
+Chrome takes for `text/plain` when it does not sniff the body, as here with
+`X-Content-Type-Options: nosniff`. Leaving out both `headers` and
+`content_type` uses no MIME type either, but then the Content-Disposition has
+to be passed on its own, as `content_disposition`.
+
 ### When Chrome sniffs the body
 
 Unless the response sends `X-Content-Type-Options: nosniff`, Chrome looks at
