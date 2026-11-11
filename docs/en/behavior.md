@@ -181,8 +181,8 @@ The [Browsers
 workflow](https://github.com/birdhackor/browser-download-filename/actions/workflows/browsers.yml)
 downloads every test case with Firefox, and with WebKit on Linux and on macOS,
 and each run's summary lists the cases where they differ from Chrome.
-The table comes from those runs, with Playwright 1.64: Chromium 156 for Chrome
-and Firefox 157, both on Linux, and WebKit 27.2 on macOS for Safari, since
+The table comes from those runs, with Playwright 1.65.0: Chromium 158 for Chrome
+and Firefox 159, both on Linux, and WebKit 27.2 on macOS for Safari, since
 WebKit on macOS names downloads with Apple's networking code, as Safari does.
 Of the 920 cases in the exact set, Firefox gives Chrome's name for 468 and
 WebKit on macOS for 351; of the 16 cases in the limited set, Firefox does for

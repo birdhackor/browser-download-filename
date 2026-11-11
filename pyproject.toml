@@ -53,7 +53,7 @@ lint = ["ruff>=0.17.1", "mypy>=2.4.0"]
 # bump here changes the reference browsers; see MAINTENANCE.md. It is part of
 # dev so that mypy checks the browser tests against Playwright's types; the
 # browsers themselves come from `playwright install`.
-browser = ["playwright==1.64.0"]
+browser = ["playwright==1.65.0"]
 # The HTTP libraries that the usage documentation shows or describes (urllib3
 # is the response under requests' response.raw). With --with-http-clients,
 # tests/http_clients checks what the documentation says about them, and

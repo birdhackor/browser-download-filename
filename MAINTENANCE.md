@@ -2,7 +2,7 @@
 
 ## 開發環境
 
-工具鏈以 uv 管理，CI 釘在 uv 0.13.1（`setup-uv` 的 `version`），build backend 是同一條線的
+工具鏈以 uv 管理，CI 釘在 uv 0.13.7（`setup-uv` 的 `version`），build backend 是同一條線的
 `uv_build`（`pyproject.toml` 的 `[build-system]`）。`uv sync` 會裝好預設的 `dev` group
 （`test`、`lint`、`browser` 與 `http-clients`）。`browser` 只有 Playwright 套件本身，
 `http-clients` 是使用說明示範或描述的 HTTP 函式庫；兩者放進 `dev`，是為了讓 mypy 用它們的型別
@@ -50,7 +50,7 @@ wheel，不是 `src/`。純 Python 套件沒有 ABI 問題，所以只有一顆 
 
 ## 瀏覽器比對測試
 
-`browser` dependency group 釘死 Playwright（`playwright==1.64.0`），而 Playwright 的版本決定
+`browser` dependency group 釘死 Playwright（`playwright==1.65.0`），而 Playwright 的版本決定
 測試用的 Chromium、Firefox 和 WebKit 版本。本機執行：
 
 ```sh
@@ -281,5 +281,5 @@ scheduled workflow 只在 default branch 執行，public repository 60 天沒有
 `{#...}` 指定跟英文相同的 anchor，讓兩邊的連結一致。本機預覽：
 
 ```sh
-uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
+uvx --python 3.15 zensical==0.1.1 serve --config-file zensical.en.toml
 ```

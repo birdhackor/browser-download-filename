@@ -12,7 +12,7 @@ Chromium 用自己那份 ICU 解碼舊式字元集，結果跟 Python 的 codec 
 
 ## 真正的 Chromium {#a-real-chromium}
 
-`tests/browser/` 裡的瀏覽器測試，從本機的 HTTP 伺服器逐位元組送出每個案例的回應標頭，透過 Playwright 用 Chromium 下載，再把 Chromium 回報的建議檔名，跟 `suggested_filename` 對同樣的網址和標頭算出的結果比較。案例共有 936 個：
+`tests/browser/` 裡的瀏覽器測試，從本機的 HTTP 伺服器逐位元組送出每個案例的回應標頭，透過 Playwright 用 Chromium 下載，再把 Chromium 回報的建議檔名，跟 `suggested_filename` 對同樣的網址和標頭算出的結果比較。對照瀏覽器是 Playwright 1.65.0 提供的 Chromium 158.0.8127.18。案例共有 936 個：
 
 - Chromium 單元測試裡的標頭；
 - 實務上看得到的標頭：兩種參數順序、語言標記、原始 UTF-8、百分比編碼、RFC 2047、引號和分號、結尾的分號、重複的標頭；
