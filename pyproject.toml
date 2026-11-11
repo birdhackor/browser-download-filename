@@ -78,7 +78,7 @@ default-groups = ["dev"]
 
 [tool.uv.build-backend]
 module-name = "browser_download_filename"
-source-include = ["tests/**", "scripts/generate_data.py", "THIRD-PARTY-LICENSES"]
+source-include = ["tests/**", "scripts/generate_data.py", "scripts/upstream.py", "THIRD-PARTY-LICENSES"]
 source-exclude = ["**/__pycache__"]
 
 [tool.pytest.ini_options]

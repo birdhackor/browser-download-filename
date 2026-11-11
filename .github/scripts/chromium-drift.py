@@ -9,15 +9,18 @@ maintainer reads the change and either ports it or bumps the pin.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import os
 import re
 import sys
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from upstream import SourceFetchError, report_failure  # noqa: E402
+from upstream import fetch as fetch_source  # noqa: E402
+
 GITILES = "https://chromium.googlesource.com"
 # Gitiles shows history only to signed-in users; the GitHub mirror does not ask.
 HISTORY = "https://github.com/chromium/chromium/commits/main"
@@ -45,11 +48,7 @@ TRACKED = (
 
 
 def fetch(path: str) -> bytes:
-    request = urllib.request.Request(
-        f"{GITILES}/{path}?format=TEXT", headers={"User-Agent": "chromium-drift"}
-    )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return base64.b64decode(response.read())
+    return fetch_source(f"{GITILES}/{path}?format=TEXT", user_agent="chromium-drift")
 
 
 def pinned(name: str) -> str:
@@ -79,7 +78,7 @@ def write_summary(revision: str, changed: list[tuple[str, str]]) -> None:
         file.write("\n".join(lines))
 
 
-def main() -> int:
+def check() -> int:
     revision = pinned("CHROMIUM_REVISION")
     # (what changed, where to read the change)
     changed: list[tuple[str, str]] = []
@@ -105,6 +104,13 @@ def main() -> int:
         file=sys.stderr,
     )
     return 1
+
+
+def main() -> int:
+    try:
+        return check()
+    except SourceFetchError as error:
+        return report_failure(error, check="Chromium source drift check")
 
 
 if __name__ == "__main__":

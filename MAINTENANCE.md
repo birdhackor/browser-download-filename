@@ -153,6 +153,16 @@ weekly canary 的 `chromium-drift` job 做兩件事：`generate_data.py --check`
 `DEPS` 是否換了 ICU。它失敗不會擋 dead-man's switch 的 ping（已發布的套件照常可用），但
 Actions 會顯示失敗，要有人來看。
 
+兩個檢查共用 `scripts/upstream.py` 抓取來源：HTTP 408、429、500、502、503、504 與連線或
+讀取的暫時性錯誤，最多嘗試 4 次，每次請求逾時 60 秒；重試前依序等待 1、2、4 秒。
+有 `Retry-After` 時延長等待，但每次退避最多 30 秒。其他 HTTP 錯誤（例如 404）不重試。
+重試訊息與最終錯誤都列出完整 URL，最終錯誤也寫進 Actions summary。
+
+結束碼 0 是完成檢查且無差異，1 是已確認來源有變動或產生的資料不同，2 是來源讀取失敗、
+檢查未完成。summary 會把暫時不可用與其他來源讀取錯誤分開；兩者都不能當成 Chromium
+改了行為或套件退化，也不能當成檢查通過。暫時不可用時稍後重跑；404 等錯誤則先檢查 URL、
+revision 與上游是否搬移檔案。
+
 升級釘選 revision：
 
 1. 選一個新的 Chromium main revision，記下它的 commit position，並從它的 `DEPS` 找出

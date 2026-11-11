@@ -17,12 +17,13 @@ Run it with the newest CPython (see UNICODE_VERSION) after bumping the pins:
 from __future__ import annotations
 
 import argparse
-import base64
 import re
 import sys
 import unicodedata
-import urllib.request
 from pathlib import Path
+
+from upstream import SourceFetchError, report_failure
+from upstream import fetch as fetch_source
 
 CHROMIUM_REVISION = "dfd5cca812cefda32e909ae39965ed22041d5e65"
 CHROMIUM_COMMIT_POSITION = "refs/heads/main@{#1720588}"
@@ -199,9 +200,7 @@ def mapping_digest(units: list[bytes], decode: object) -> str:
 
 def fetch(project: str, revision: str, path: str) -> str:
     url = f"{GITILES}/{project}/+/{revision}/{path}?format=TEXT"
-    request = urllib.request.Request(url, headers={"User-Agent": "generate-data"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return base64.b64decode(response.read()).decode("utf-8")
+    return fetch_source(url, user_agent="generate-data").decode("utf-8")
 
 
 def strip_for_compare(name: str) -> str:
@@ -524,4 +523,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SourceFetchError as error:
+        raise SystemExit(report_failure(error, check="Generated data check")) from error
