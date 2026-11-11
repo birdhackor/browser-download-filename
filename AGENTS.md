@@ -48,14 +48,14 @@ uv run --no-project --python 3.15 scripts/generate_data.py --check
 文件預覽（zensical 版本跟 `.github/workflows/docs.yml` 一致；中文站換成 `zensical.zh-Hant.toml`）：
 
 ```sh
-uvx --python 3.15 zensical==0.0.70 serve --config-file zensical.en.toml
+uvx --python 3.15 zensical==0.1.1 serve --config-file zensical.en.toml
 ```
 
 `docs.yml` 用 `--strict` 建置：連到不存在的頁面或 anchor 會讓建置失敗。改了文件就在本機用同樣的方式建置兩個語言（輸出在 `site/`，已列入 `.gitignore`）：
 
 ```sh
-uvx --python 3.15 zensical==0.0.70 build --config-file zensical.en.toml --clean --strict
-uvx --python 3.15 zensical==0.0.70 build --config-file zensical.zh-Hant.toml --clean --strict
+uvx --python 3.15 zensical==0.1.1 build --config-file zensical.en.toml --clean --strict
+uvx --python 3.15 zensical==0.1.1 build --config-file zensical.zh-Hant.toml --clean --strict
 ```
 
 ## 架構
