@@ -31,7 +31,7 @@ The browser tests in `tests/browser/` serve each case from a local HTTP server
 that writes the response headers byte for byte, download it with Chromium
 through Playwright, and compare the suggested file name that Chromium reports
 with what `suggested_filename` returns for the same URL and headers.
-There are 936 cases:
+The reference is Chromium 158.0.8127.18 from Playwright 1.65.0. There are 936 cases:
 
 - the headers of Chromium's unit tests;
 - headers seen in practice: both parameter orders, language tags, raw UTF-8,
