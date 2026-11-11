@@ -78,6 +78,7 @@ def check_sdist(path: Path) -> list[str]:
         "tests/test_chromium_content_disposition.py",
         "tests/browser/corpus.py",
         "scripts/generate_data.py",
+        "scripts/upstream.py",
     }
     missing = sorted(required - names)
     errors = [f"{path.name}: missing {missing}"] if missing else []

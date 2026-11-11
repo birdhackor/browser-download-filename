@@ -102,7 +102,7 @@ jobs:
   # Not part of the dead-man's switch: a change upstream needs a maintainer to
   # read it, but the published package keeps working meanwhile.
   chromium-drift:
-    name: Chromium source changed since the ported revision
+    name: Check Chromium source drift
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
