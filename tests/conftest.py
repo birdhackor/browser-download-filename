@@ -20,6 +20,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="run tests/browser against this Playwright browser (repeatable)",
     )
     group.addoption(
+        "--browser-channel",
+        choices=("chrome",),
+        help="use installed Google Chrome Stable for --with-browser chromium",
+    )
+    group.addoption(
+        "--browser-executable",
+        metavar="PATH",
+        help="use this Chromium executable, for example an unpacked Chrome for Testing",
+    )
+    group.addoption(
         "--browser-report",
         metavar="PATH",
         help="write the browser results to PATH (JSON) and to PATH with .md (a table)",
@@ -47,7 +57,13 @@ def is_installed(distribution: str) -> bool:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Asking for the HTTP client tests without the libraries is an error."""
+    """Reject browser overrides without Chromium and missing HTTP client libraries."""
+    if (
+        config.getoption("--browser-channel") or config.getoption("--browser-executable")
+    ) and "chromium" not in config.getoption("--with-browser"):
+        raise pytest.UsageError(
+            "--browser-channel and --browser-executable need --with-browser chromium"
+        )
     if not config.getoption("--with-http-clients"):
         return
     missing = [name for name in http_client_distributions() if not is_installed(name)]

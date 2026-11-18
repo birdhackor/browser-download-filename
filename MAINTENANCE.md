@@ -61,6 +61,17 @@ uv run pytest tests/browser --with-browser chromium --browser-report browser-rep
 
 `--with-browser` 可以重複指定 `chromium`、`firefox`、`webkit`；`--browser-report` 另外在
 旁邊寫一份 Markdown 摘要（依精確集合與限制集合分開計數，只列跟 Chrome 檔名不同的案例）。
+加上 `--browser-channel chrome` 就改用已安裝的 Google Chrome Stable；在全新的 CI runner
+先用 `uv run playwright install --with-deps chrome` 安裝。重現 weekly canary 的比對：
+
+```sh
+uv run pytest tests/browser --with-browser chromium --browser-channel chrome --browser-report browser-report-chrome-stable.json
+```
+
+解開 Chrome for Testing 到自行選的目錄時，可以再用 `--browser-executable /path/to/chrome`
+指定執行檔。這兩個選項只套用到 Chromium engine，沒有 `--with-browser chromium` 時會報錯。
+報告記錄實際啟動的瀏覽器完整版本與 channel，與移植來源的 revision 分開。
+
 測試從本機的原始位元組 HTTP 伺服器依序送出每個案例的標頭行與內容，透過 `<a>` 點擊觸發
 下載，比較 Playwright 的 `download.suggested_filename` 與預期的檔名。多數案例送出一行
 Content-Type、`X-Content-Type-Options: nosniff` 與二進位內容，排除 MIME sniffing；測 MIME
@@ -102,7 +113,8 @@ Playwright 等於換掉比對的基準瀏覽器。
    與 `docs/zh-Hant/behavior.md`）寫著測量時的 Playwright 與瀏覽器版本、表格和一致的案例數，
    合併後用新的報告更新它們。
 
-weekly canary 的 `newest-chromium` job 會先用最新的 Playwright 跑一次，讓這類變化提早出現。
+weekly canary 的 `chrome-stable` job 用釘選的 Playwright 操作最新 Chrome Stable，
+驗證使用者實際用到的正式版；`browsers.yml` 繼續用 Playwright 釘選的瀏覽器做可重現的比對。
 
 ## HTTP 函式庫測試
 
@@ -147,11 +159,19 @@ uv run pytest tests/http_clients --with-http-clients
 generator 把這些值與產生的表格一起寫進 `src/browser_download_filename/_data.py`；
 `_data.py` 不手改。
 
-weekly canary 的 `chromium-drift` job 做兩件事：`generate_data.py --check` 確認
-`_data.py` 仍是 generator 在釘選 revision 上的產物；`.github/scripts/chromium-drift.py`
-比較 `TRACKED` 列出的 Chromium 檔案在釘選 revision 與 main 之間有沒有變動，以及 main 的
-`DEPS` 是否換了 ICU。它失敗不會擋 dead-man's switch 的 ping（已發布的套件照常可用），但
-Actions 會顯示失敗，要有人來看。
+weekly canary 用最新 Chrome Stable 的下載結果驗證行為，不排程來源 drift 檢查，也不因
+Chromium 或 ICU 原始碼有變動而要求固定審查。瀏覽器測試出現差異、使用者回報問題，或主動
+升級移植基準時，再檢查相關來源。測試通過只代表語料涵蓋的行為一致。
+
+以下工具保留供手動診斷：`generate_data.py --check` 確認 `_data.py` 仍是 generator 在
+釘選 revision 上的產物；`.github/scripts/chromium-drift.py` 比較 `TRACKED` 列出的 Chromium
+檔案在釘選 revision 與 main 之間有沒有變動，以及 main 的 `DEPS` 是否換了 ICU。
+來源檔有變動只表示需要讀取差異才能判斷影響，不表示命名行為已經改變：
+
+```sh
+uv run --no-project --python 3.15 scripts/generate_data.py --check
+uv run --no-project --python 3.15 .github/scripts/chromium-drift.py
+```
 
 兩個檢查共用 `scripts/upstream.py` 抓取來源：HTTP 408、429、500、502、503、504 與連線或
 讀取的暫時性錯誤，最多嘗試 4 次，每次請求逾時 60 秒；重試前依序等待 1、2、4 秒。
@@ -168,7 +188,7 @@ revision 與上游是否搬移檔案。
 1. 選一個新的 Chromium main revision，記下它的 commit position，並從它的 `DEPS` 找出
    ICU revision。新 revision 不要比 Playwright 釘的 Chromium 新太多，否則瀏覽器測試比對的
    是舊行為。
-2. 逐一檢視 `TRACKED` 檔案的變動：`chromium-drift` job 的 summary 會列出變動的檔案，連到
+2. 逐一檢視 `TRACKED` 檔案的變動：手動執行 `chromium-drift.py` 會列出變動的檔案，連到
    GitHub mirror 上該檔案的 commit 歷史（例如
    `https://github.com/chromium/chromium/commits/main/net/http/http_content_disposition.cc`）。
    gitiles 的 `+log/<舊>..<新>/<路徑>` 也可以，但要先登入 Google 帳號才看得到歷史。
@@ -199,7 +219,7 @@ revision 時，對照上游逐一重新檢查：可 sniff 的型別清單與 unk
 （`ShouldSniffMimeType`）、URLLoader 不 sniff 時的轉換（`services/network/url_loader.cc`：空型別
 與 feed 型別換成 `text/plain`），以及網路層的 MIME 解析（`net/http/http_response_headers.cc` 的
 `GetMimeTypeAndCharset`、`net/http/http_util.cc` 的 `ParseContentType`、`net/base/mime_util.cc`
-的 `ParseMimeType`）。這些來源檔也要列在 `chromium-drift.py` 的 `TRACKED` 裡，drift job 才看得到
+的 `ParseMimeType`）。這些來源檔也要列在 `chromium-drift.py` 的 `TRACKED` 裡，手動比較才看得到
 它們的變動。
 
 字元集的部分：單位元組表直接來自 ICU 的 `.ucm`；多位元組字元集用 Python 的 codec，
@@ -257,10 +277,16 @@ force-push，bypass：repo admin。
   安裝 PyPI 上已發布的套件並做 smoke test。刻意不測 alpha。
 - `newest-dependencies`：`uv lock --upgrade` 後帶 `--with-http-clients` 跑完整測試，提早發現
   pytest、Hypothesis 與 HTTP 函式庫等新版造成的問題。
-- `newest-chromium`：只升級 Playwright，用它附帶的最新 Chromium 跑瀏覽器測試。
-- `chromium-drift`：見〈跟進 Chromium〉。
+- `chrome-stable`：用釘選的 Playwright 操作當次安裝的最新 Google Chrome Stable，執行
+  精確集合與已知限制集合的瀏覽器測試。log、JSON 與 Markdown 報告記錄完整版本；
+  Chrome 安裝失敗最多嘗試 3 次，重試前等待 5、10 秒。
+  不一致與測試無法完成都會失敗，報告及 artifact 保留失敗案例的輸入與結果。
 
-前三個 job 都成功後，`ping-dead-mans-switch` 才會 POST 到 secret `HEALTHCHECKS_PING_URL`
+Chromium／ICU 來源變動不會觸發這個 workflow 的紅燈，也不產生固定審查待辦；手動診斷工具
+見〈跟進 Chromium〉。移植來源 revision 與最近驗證的 Chrome Stable 版本是兩件事，Chrome
+升版但語料中的行為相同時，不需要只為了升版去更新移植釘選。
+
+這三個 job 都成功後，`ping-dead-mans-switch` 才會 POST 到 secret `HEALTHCHECKS_PING_URL`
 （例如 healthchecks.io 的 ping URL）。外部服務的預期週期要設成一週以上並啟用逾期通知；
 任何 canary 失敗、排程被停用或沒執行都不會 ping，外部服務因此會告警。GitHub 的
 scheduled workflow 只在 default branch 執行，public repository 60 天沒有活動會被停用，

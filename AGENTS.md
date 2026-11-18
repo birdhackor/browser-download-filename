@@ -33,6 +33,8 @@ uv run pytest tests/browser --with-browser chromium --browser-report browser-rep
 
 `--with-browser` 可重複指定 `chromium`、`firefox`、`webkit`；`--browser-report` 會在旁邊另寫一份 Markdown 摘要，只列結果不同的案例。
 
+weekly canary 改用最新 Google Chrome Stable：`uv run playwright install chrome` 安裝後，在同一個測試指令加上 `--browser-channel chrome`；自行解開的 Chrome for Testing 可加 `--browser-executable /path/to/chrome`。這兩個選項都需要 `--with-browser chromium`。報告記錄實際 channel 與完整版本。Chromium／ICU 來源 drift 與 `generate_data.py --check` 保留手動執行，不是週期告警或固定審查待辦。
+
 HTTP 函式庫測試要 `http-clients` group 的函式庫（`uv sync` 已裝）；給了旗標卻缺函式庫時，pytest 直接報錯而不是 skip：
 
 ```sh

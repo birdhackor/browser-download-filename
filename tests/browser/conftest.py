@@ -98,6 +98,7 @@ class BrowserSession:
     base_url: str
     server: _Server
     timeout_error: type[Exception]
+    channel: str | None = None
     _next_id: int = 0
 
     @property
@@ -134,15 +135,31 @@ class BrowserSession:
 
 
 @pytest.fixture(scope="session")
-def browser_session(browser_name: str, base_url: str, server: _Server) -> Iterator[BrowserSession]:
+def browser_session(
+    browser_name: str, base_url: str, server: _Server, request: pytest.FixtureRequest
+) -> Iterator[BrowserSession]:
     playwright_api = pytest.importorskip("playwright.sync_api")
     with playwright_api.sync_playwright() as playwright:
-        browser: Browser = getattr(playwright, browser_name).launch()
+        channel = (
+            request.config.getoption("--browser-channel") if browser_name == "chromium" else None
+        )
+        executable = (
+            request.config.getoption("--browser-executable") if browser_name == "chromium" else None
+        )
+        browser: Browser = getattr(playwright, browser_name).launch(
+            channel=channel, executable_path=executable
+        )
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
         page.goto(base_url + "/")
         yield BrowserSession(
-            browser_name, browser.version, page, base_url, server, playwright_api.TimeoutError
+            browser_name,
+            browser.version,
+            page,
+            base_url,
+            server,
+            playwright_api.TimeoutError,
+            channel=channel,
         )
         context.close()
         browser.close()
@@ -171,13 +188,22 @@ def markdown_report(rows: list[dict[str, Any]]) -> str:
     # one the corpus lists in the limited set.
     differing = [row for row in rows if row["expected"] != row["result"]]
     lines = []
-    for engine, version in dict.fromkeys((row["engine"], row["version"]) for row in rows):
+    for engine, version, channel in dict.fromkeys(
+        (row["engine"], row["version"], row.get("channel")) for row in rows
+    ):
         for name in SETS:
-            in_set = [row for row in rows if row["engine"] == engine and row["set"] == name]
+            in_set = [
+                row
+                for row in rows
+                if row["engine"] == engine
+                and row["version"] == version
+                and row.get("channel") == channel
+                and row["set"] == name
+            ]
             if in_set:
                 same = sum(row["expected"] == row["result"] for row in in_set)
                 lines.append(
-                    f"- {engine} {version}, {name} set: {len(in_set)} cases, {same} same as Chrome,"
+                    f"- {channel or engine} {version}, {name} set: {len(in_set)} cases, {same} same as Chrome,"
                     f" {len(in_set) - same} differ"
                 )
     if differing:
@@ -187,7 +213,7 @@ def markdown_report(rows: list[dict[str, Any]]) -> str:
             "| --- | --- | --- | --- | --- | --- |",
         ]
         lines += [
-            f"| {row['engine']} | {row['set']} | `{row['case']}` | {_cell(row['expected'])}"
+            f"| {row.get('channel') or row['engine']} | {row['set']} | `{row['case']}` | {_cell(row['expected'])}"
             f" | {_cell(row['ours'])} | {_cell(row['result'])} |"
             for row in differing
         ]

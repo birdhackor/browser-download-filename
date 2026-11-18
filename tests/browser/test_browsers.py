@@ -62,6 +62,7 @@ def _record(
     report.rows.append(
         {
             "engine": session.name,
+            "channel": session.channel,
             "version": session.version,
             "set": set_name,
             "case": case.id,

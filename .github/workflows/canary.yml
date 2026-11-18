@@ -69,8 +69,8 @@ jobs:
           uv sync --python 3.15
           uv run python -m pytest -p no:cacheprovider --with-http-clients
 
-  newest-chromium:
-    name: compare with the newest Playwright Chromium
+  chrome-stable:
+    name: compare with the latest Chrome Stable
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,46 +78,39 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: false
-      - name: Install the newest Playwright and its Chromium
+      - name: Install the locked environment and Chrome Stable
         run: |
-          uv lock --upgrade-package playwright
-          uv sync --group browser --python 3.15
-          uv run playwright install --with-deps chromium
-      - name: Compare every case with Chromium
+          uv sync --locked --group browser --python 3.15
+          for attempt in 1 2 3; do
+            if uv run --locked playwright install --with-deps chrome; then
+              break
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
+          google-chrome --version
+      - name: Compare every case with Chrome Stable
         run: >-
-          uv run python -m pytest tests/browser -p no:cacheprovider
-          --with-browser chromium --browser-report browser-report-chromium.json
+          uv run --locked python -m pytest tests/browser -p no:cacheprovider
+          --with-browser chromium --browser-channel chrome
+          --browser-report browser-report-chrome-stable.json
       - name: Summarize
-        if: ${{ always() && hashFiles('browser-report-chromium.md') != '' }}
+        if: ${{ always() && hashFiles('browser-report-chrome-stable.md') != '' }}
         shell: bash
         run: |
-          { echo "## Newest Chromium"; echo; cat browser-report-chromium.md; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "## Chrome Stable"; echo; cat browser-report-chrome-stable.md; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
-          name: browser-report-newest-chromium
-          path: browser-report-chromium.*
+          name: browser-report-chrome-stable
+          path: browser-report-chrome-stable.*
           if-no-files-found: ignore
-
-  # Not part of the dead-man's switch: a change upstream needs a maintainer to
-  # read it, but the published package keeps working meanwhile.
-  chromium-drift:
-    name: Check Chromium source drift
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          # Matches the Unicode version of the ICU that _data.py is built from.
-          python-version: "3.15"
-      - name: Check that _data.py is what the generator makes
-        run: python scripts/generate_data.py --check
-      - name: Check the tracked Chromium sources
-        run: python .github/scripts/chromium-drift.py
 
   ping-dead-mans-switch:
     name: ping dead-man's switch
-    needs: [published-package-on-newest-python, newest-dependencies, newest-chromium]
+    needs: [published-package-on-newest-python, newest-dependencies, chrome-stable]
     runs-on: ubuntu-26.04
     permissions: {}
     steps:

@@ -34,6 +34,14 @@ uv run pytest tests/browser --with-browser chromium --browser-report report.json
 
 `--with-browser` 接受 `chromium`、`firefox` 或 `webkit`，可以重複指定；`--browser-report` 還會在 JSON 檔旁邊寫一份 Markdown 摘要。
 
+要改用 Google Chrome Stable，先用 `uv run playwright install chrome` 安裝，再加上 `--browser-channel chrome`：
+
+```console
+uv run pytest tests/browser --with-browser chromium --browser-channel chrome --browser-report report.json
+```
+
+自行解開的 Chrome for Testing 可以用 `--browser-executable /path/to/chrome` 指定。這兩個選項都需要 `--with-browser chromium`，其他 engine 不受影響。報告會記錄實際執行的瀏覽器 channel 與完整版本。
+
 ## HTTP 函式庫 {#the-http-libraries}
 
 [使用方式](usage.md#pass-the-headers-from-your-http-library)示範了怎麼從 httpx2、httpx、requests、aiohttp 和 `urllib.request` 傳入標頭。`tests/http_clients/` 裡的測試從本機的 HTTP 伺服器逐位元組送出標頭行，包括重複的 Content-Disposition 行、沒關上的引號、舊式字元集和 UTF-8 的位元組、多行 Content-Type、X-Content-Type-Options、折行和其他換行、NUL，以及比某些函式庫上限更長、更多的標頭行。測試用各個函式庫取回它們，再照使用方式的寫法交給本套件，結果必須跟原樣傳入送出的標頭行時相同。使用方式說某個函式庫讀這些行的方式跟 Chrome 不同或會拒收，或另一種傳法會得到不同檔名的地方，測試也檢查那個檔名，或函式庫丟出的例外。文件對這些函式庫本身的說法同樣有測試檢查，aiohttp 的兩種 HTTP parser 也都會跑。CI 在 CPython 3.11 和 3.15 上執行這些測試，每週的 canary 則用最新版的函式庫執行：
@@ -58,6 +66,9 @@ uv run pytest tests/http_clients --with-http-clients
 
 本套件跟隨一個釘選的 Chromium 版本（`browser_download_filename._data` 裡的 `CHROMIUM_REVISION`），以及該版本 Chromium 釘選的 ICU 版本。每週一次的 canary 會：
 
-- 用 Playwright 提供的最新 Chromium 執行瀏覽器測試，所以 Chromium 的行為一旦改變，就會出現失敗的案例；
-- 檢查移植來源的 Chromium 檔案或 ICU 版本，在釘選版本之後有沒有變動；
+- 用釘選的 Playwright 操作最新 Google Chrome Stable，執行精確集合與已知限制集合的瀏覽器測試，並在結果中記錄完整的 Chrome 版本；
 - 在最新的 Python 上安裝已發布的套件，並用最新版的測試工具執行測試。
+
+每週檢查會因語料中的行為差異，或檢查無法完成而失敗。Chromium 與 ICU 原始碼有變動本身不會讓它失敗，也不產生固定審查待辦。移植來源的釘選 revision 與當次驗證的 Chrome 版本分開記錄：Chrome 升版本身不代表需要更新移植內容。測試通過代表已涵蓋的案例一致，不代表所有可能的輸入都一致。
+
+來源比較與產生資料的檢查保留為手動診斷工具，在出現行為差異、使用者回報，或主動升級移植來源時使用。

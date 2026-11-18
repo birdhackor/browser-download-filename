@@ -75,6 +75,18 @@ uv run pytest tests/browser --with-browser chromium --browser-report report.json
 `--with-browser` takes `chromium`, `firefox` or `webkit` and can be repeated;
 `--browser-report` also writes a Markdown summary next to the JSON file.
 
+To use Google Chrome Stable instead of Playwright's bundled Chromium, install
+it with `uv run playwright install chrome`, then add `--browser-channel chrome`:
+
+```console
+uv run pytest tests/browser --with-browser chromium --browser-channel chrome --browser-report report.json
+```
+
+An unpacked Chrome for Testing can be selected with
+`--browser-executable /path/to/chrome`. Both overrides require
+`--with-browser chromium` and leave other engines unchanged. The report records
+the channel and full version of the browser that actually ran.
+
 ## The HTTP libraries
 
 [Usage](usage.md#pass-the-headers-from-your-http-library) shows how to pass the
@@ -122,9 +134,19 @@ The port follows Chromium at a pinned revision (`CHROMIUM_REVISION` in
 `browser_download_filename._data`) and the ICU revision that Chromium pins. A
 weekly canary
 
-- runs the browser tests against the newest Chromium that Playwright ships,
-  so a change in Chromium's behavior shows up as a failing case;
-- checks whether the ported Chromium files or the ICU revision changed since
-  the pinned revision;
+- runs the exact and known-limitation browser cases against the latest Google
+  Chrome Stable, using the locked Playwright version, and records the full
+  Chrome version in the results;
 - installs the published package on the newest Python and runs the tests with
   the newest versions of the test tools.
+
+The weekly check fails for behavioral differences in the corpus or checks
+that cannot complete. Chromium and ICU source changes alone do not fail it
+or create a recurring review task. The pinned source revision and the Chrome
+version verified by a run are separate: a new Chrome release does not by itself
+require updating the port. Passing tests establish agreement on the covered
+cases, not on every possible input.
+
+Source comparisons and generated-data checks remain manual diagnostic tools,
+used after a behavioral difference, a user report, or when deliberately
+upgrading the port's source revision.
