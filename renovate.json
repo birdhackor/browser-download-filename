@@ -16,18 +16,6 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track the uv version that setup-uv installs in CI (version: \"X.Y.Z\"); the github-actions manager only sees the action itself",
-      "managerFilePatterns": [
-        ".github/workflows/*.yml"
-      ],
-      "matchStrings": [
-        "astral-sh/setup-uv@[0-9a-f]{40} # \\S+\\s+with:\\s+version: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
-      ],
-      "depNameTemplate": "uv",
-      "datasourceTemplate": "pypi"
-    },
-    {
-      "customType": "regex",
       "description": "Track tools pinned inline in workflow commands (twine==X.Y.Z, zensical==X.Y.Z)",
       "managerFilePatterns": [
         ".github/workflows/*.yml"
@@ -71,7 +59,7 @@
     {
       "description": "Keep uv (setup-uv's version) and the uv_build backend moving together as one build-tool change; human review",
       "matchDepNames": [
-        "uv",
+        "astral-sh/uv",
         "uv_build",
         "uv-build"
       ],
