@@ -299,7 +299,8 @@ scheduled workflow 只在 default branch 執行，public repository 60 天沒有
 
 - 只有 CI 基礎 Action（checkout、setup-python、download-artifact、upload-artifact）的
   非 major 更新會自動合併；setup-uv、PyPI 發布 Action、configure／deploy-pages 維持人工。
-- uv（`setup-uv` 的 `version`，用 regex manager 追蹤）與 `uv_build` 合成一組 "uv toolchain"。
+- uv CLI（`setup-uv` 的 `with.version`）由內建的 `github-actions` manager 以
+  `astral-sh/uv` 追蹤，與 `uv_build` 同屬 "uv toolchain"，由人工審查。
 - Playwright 獨立一組，永不自動合併（見〈升級 Playwright〉）。
 - aiohttp、httpx、httpx2、requests、urllib3 合成 "HTTP clients" 一組，不自動合併：
   `http-clients` job 檢查文件對它們的說法，但新版可能棄用文件叫使用者傳的屬性，或新增
