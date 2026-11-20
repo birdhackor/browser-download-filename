@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: "3.15"
       - name: Install zensical
-        run: pip install "zensical==0.1.1"
+        run: pip install "zensical==0.1.2"
       # zensical builds one language per run, each with its own config and its
       # own subdirectory of site/.
       - name: Build English documentation
